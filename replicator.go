@@ -34,6 +34,7 @@ type OraEventStoreReplicator struct {
 
 func (r *OraEventStoreReplicator) ProcessFeed() error {
 
+
 	//Do the work in a transaction
 	log.Info("ProcessFeed start transaction")
 	tx, err := r.db.Begin()
@@ -43,6 +44,7 @@ func (r *OraEventStoreReplicator) ProcessFeed() error {
 	}
 
 	//Get lock within the context of a transaction
+	log.Info("Get table lock")
 	locked, err := r.locker.GetLock(tx)
 	if err != nil {
 		log.Warnf("Error obtaining lock: %s", err.Error())
@@ -57,17 +59,59 @@ func (r *OraEventStoreReplicator) ProcessFeed() error {
 	}
 
 	//What's the last event seen?
+	log.Info("Select last event observed in replicated event feed")
+	var aggregateID string
+	err = tx.QueryRow("select aggregate_id from events where id = (select max(id) from events)").Scan(&aggregateID)
+	if err != nil && err != sql.ErrNoRows {
+		log.Warnf("Error querying for last event: %s",err.Error())
+		tx.Rollback()
+		return err
+	}
 
 	//Find the feed with the event
+	var feed *atom.Feed
+	var findFeedErr error
+	if aggregateID != "" {
+		feed, findFeedErr = findFeedByEvent(aggregateID)
+	} else {
+		feed, findFeedErr = getFirstFeed()
+	}
 
-	//If this is the last event in the feed, get the next
-	//feed.
+	if findFeedErr != nil {
+		log.Warnf("Unable to retrieve feed data: %s", findFeedErr.Error())
+		tx.Rollback()
+		return findFeedErr
+	}
 
 	//Add all the events in this feed that have not been added before
+	if feed != nil {
+		log.Info("Feed with events to process has been found")
+		err = addFeedEvents(feed); if err != nil {
+			log.Warnf("Unable to add feed events: %s", err.Error())
+			tx.Rollback()
+			return err
+		}
+	}
 
 	//Unlock
+	err = tx.Commit()
+	if err  != nil {
+		log.Warnf("Error commiting work: %s", err.Error())
+	}
 
 	return nil
+}
+
+func addFeedEvents(feed *atom.Feed) error {
+	return nil
+}
+
+func findFeedByEvent(aggregateID string)(*atom.Feed,error) {
+	return nil,nil
+}
+
+func getFirstFeed()(*atom.Feed,error) {
+	return nil,nil
 }
 
 type OraEventStoreReplicatorFactory struct{}
