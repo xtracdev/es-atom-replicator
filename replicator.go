@@ -6,6 +6,7 @@ import (
 	log "github.com/Sirupsen/logrus"
 	"golang.org/x/tools/blog/atom"
 	"strings"
+	"net/url"
 )
 
 type Locker interface {
@@ -72,9 +73,9 @@ func (r *OraEventStoreReplicator) ProcessFeed() error {
 	var feed *atom.Feed
 	var findFeedErr error
 	if aggregateID != "" {
-		feed, findFeedErr = findFeedByEvent(aggregateID)
+		feed, findFeedErr = r.findFeedByEvent(aggregateID)
 	} else {
-		feed, findFeedErr = getFirstFeed()
+		feed, findFeedErr = r.getFirstFeed()
 	}
 
 	if findFeedErr != nil {
@@ -86,7 +87,7 @@ func (r *OraEventStoreReplicator) ProcessFeed() error {
 	//Add all the events in this feed that have not been added before
 	if feed != nil {
 		log.Info("Feed with events to process has been found")
-		err = addFeedEvents(feed); if err != nil {
+		err = r.addFeedEvents(feed,tx); if err != nil {
 			log.Warnf("Unable to add feed events: %s", err.Error())
 			tx.Rollback()
 			return err
@@ -102,16 +103,60 @@ func (r *OraEventStoreReplicator) ProcessFeed() error {
 	return nil
 }
 
-func addFeedEvents(feed *atom.Feed) error {
+func (r *OraEventStoreReplicator) addFeedEvents(feed *atom.Feed,tx *sql.Tx) error {
 	return nil
 }
 
-func findFeedByEvent(aggregateID string)(*atom.Feed,error) {
+func (r *OraEventStoreReplicator) findFeedByEvent(aggregateID string)(*atom.Feed,error) {
 	return nil,nil
 }
 
-func getFirstFeed()(*atom.Feed,error) {
-	return nil,nil
+func getLink(linkRelationship string, feed *atom.Feed) *string {
+	for _, l := range feed.Link {
+		if l.Rel == linkRelationship {
+			return &l.Href
+		}
+	}
+
+	return nil
+}
+
+func feedIdFromResource(feedURL string) string {
+	url,_ := url.Parse(feedURL)
+	parts := strings.Split(url.RequestURI(), "/")
+	return parts[len(parts) - 1]
+}
+
+func (r *OraEventStoreReplicator) getFirstFeed()(*atom.Feed,error) {
+	//Start with recent
+	var feed *atom.Feed
+	var feedReadError error
+
+	feed, feedReadError = r.feedReader.GetRecent()
+	if feedReadError != nil {
+		return nil, feedReadError
+	}
+
+	if feed == nil {
+		//Nothing in the feed if there's no recent available...
+		return nil,nil
+	}
+
+	for {
+		prev := getLink("prev-archive", feed)
+		if prev == nil {
+			break
+		}
+
+		//Extract feed id from prev
+		feedID := feedIdFromResource(*prev)
+		feed, feedReadError = r.feedReader.GetFeed(feedID)
+		if feedReadError != nil {
+			return nil,feedReadError
+		}
+	}
+
+	return feed,nil
 }
 
 type OraEventStoreReplicatorFactory struct{}
