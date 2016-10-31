@@ -1,7 +1,9 @@
 package replicator
 
 import (
+	"encoding/xml"
 	"errors"
+	log "github.com/Sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"golang.org/x/tools/blog/atom"
 	"gopkg.in/DATA-DOG/go-sqlmock.v1"
@@ -25,20 +27,30 @@ func testExpectLock(mock sqlmock.Sqlmock, lockError bool, gotLock bool) {
 
 }
 
-func testExpectQueryReturnNoRows(mock sqlmock.Sqlmock) {
-	rows := sqlmock.NewRows([]string{"aggregate_id"})
-	mock.ExpectQuery("select aggregate_id from events where id").WillReturnRows(rows)
+//TODO - add insert argument expectations then make sure we get the events in the correct order
+func testExpectInsertIntoEvents(mock sqlmock.Sqlmock) {
+	execOkResult := sqlmock.NewResult(1, 1)
+	mock.ExpectExec("insert into events").WillReturnResult(execOkResult)
+	mock.ExpectExec("insert into publish").WillReturnResult(execOkResult)
 }
 
-type testFeedReader struct{
+func testExpectQueryReturnNoRows(mock sqlmock.Sqlmock) {
+	rows := sqlmock.NewRows([]string{"aggregate_id", "version"})
+	mock.ExpectQuery("select aggregate_id, version from events where id").WillReturnRows(rows)
+}
+
+type testFeedReader struct {
 	Feeds map[string]*atom.Feed
 }
 
 func (tfr *testFeedReader) GetRecent() (*atom.Feed, error) {
+
 	if tfr.Feeds == nil {
+		log.Info("No feeds in test reader")
 		return nil, nil
 	} else {
-		return tfr.Feeds["recent"],nil
+		log.Infof("Test feeder returning feed %+v", tfr.Feeds["recent"])
+		return tfr.Feeds["recent"], nil
 	}
 }
 
@@ -46,8 +58,27 @@ func (tfr *testFeedReader) GetFeed(feedid string) (*atom.Feed, error) {
 	if tfr.Feeds == nil {
 		return nil, nil
 	} else {
-		return tfr.Feeds["feedid"],nil
+		return tfr.Feeds[feedid], nil
 	}
+}
+
+func initTestFeedReader() *testFeedReader {
+	reader := testFeedReader{}
+	reader.Feeds = make(map[string]*atom.Feed)
+
+	var recentFeed atom.Feed
+	xml.Unmarshal([]byte(recent), &recentFeed)
+	reader.Feeds["recent"] = &recentFeed
+
+	var secondArchiveFeed atom.Feed
+	xml.Unmarshal([]byte(secondArchive), &secondArchiveFeed)
+	reader.Feeds["9BC3EA7D-51E2-8C61-0E08-02368CD22054"] = &secondArchiveFeed
+
+	var firstArchiveFeed atom.Feed
+	xml.Unmarshal([]byte(firstArchive), &firstArchiveFeed)
+	reader.Feeds["9AF82230-6137-4DA3-3580-80EDA74B0DE2"] = &firstArchiveFeed
+
+	return &reader
 }
 
 func TestReplicateTxnStartError(t *testing.T) {
@@ -132,7 +163,28 @@ func TestReplicateEmpty(t *testing.T) {
 }
 
 func TestReplicateFromScratch(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("an error '%s' was not expected when opening a stub database connection", err)
+	}
+	defer db.Close()
 
+	mock.ExpectBegin()
+	testExpectLock(mock, false, true)
+	testExpectQueryReturnNoRows(mock)
+	testExpectInsertIntoEvents(mock)
+	testExpectInsertIntoEvents(mock)
+	testExpectInsertIntoEvents(mock)
+	mock.ExpectCommit()
+
+	feedReader := initTestFeedReader()
+
+	replicator, err := testFactory.New(new(TableLocker), feedReader, db)
+
+	replicator.ProcessFeed()
+
+	err = mock.ExpectationsWereMet()
+	assert.Nil(t, err)
 }
 
 func TestReplicateFromMidFeed(t *testing.T) {

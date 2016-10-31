@@ -2,11 +2,13 @@ package replicator
 
 import (
 	"database/sql"
+	"encoding/base64"
 	"errors"
+	"fmt"
 	log "github.com/Sirupsen/logrus"
 	"golang.org/x/tools/blog/atom"
-	"strings"
 	"net/url"
+	"strings"
 )
 
 type Locker interface {
@@ -35,7 +37,6 @@ type OraEventStoreReplicator struct {
 
 func (r *OraEventStoreReplicator) ProcessFeed() error {
 
-
 	//Do the work in a transaction
 	log.Info("ProcessFeed start transaction")
 	tx, err := r.db.Begin()
@@ -62,9 +63,10 @@ func (r *OraEventStoreReplicator) ProcessFeed() error {
 	//What's the last event seen?
 	log.Info("Select last event observed in replicated event feed")
 	var aggregateID string
-	err = tx.QueryRow("select aggregate_id from events where id = (select max(id) from events)").Scan(&aggregateID)
+	var version int
+	err = tx.QueryRow("select aggregate_id, version from events where id = (select max(id) from events)").Scan(&aggregateID, &version)
 	if err != nil && err != sql.ErrNoRows {
-		log.Warnf("Error querying for last event: %s",err.Error())
+		log.Warnf("Error querying for last event: %s", err.Error())
 		tx.Rollback()
 		return err
 	}
@@ -73,7 +75,7 @@ func (r *OraEventStoreReplicator) ProcessFeed() error {
 	var feed *atom.Feed
 	var findFeedErr error
 	if aggregateID != "" {
-		feed, findFeedErr = r.findFeedByEvent(aggregateID)
+		feed, findFeedErr = r.findFeedByEvent(aggregateID, version)
 	} else {
 		feed, findFeedErr = r.getFirstFeed()
 	}
@@ -87,31 +89,94 @@ func (r *OraEventStoreReplicator) ProcessFeed() error {
 	//Add all the events in this feed that have not been added before
 	if feed != nil {
 		log.Info("Feed with events to process has been found")
-		err = r.addFeedEvents(feed,tx); if err != nil {
+		err = r.addFeedEvents(aggregateID, version, feed, tx)
+		if err != nil {
 			log.Warnf("Unable to add feed events: %s", err.Error())
 			tx.Rollback()
 			return err
 		}
+	} else {
+		log.Info("No events found in feed")
 	}
 
 	//Unlock
 	err = tx.Commit()
-	if err  != nil {
+	if err != nil {
 		log.Warnf("Error commiting work: %s", err.Error())
 	}
 
 	return nil
 }
 
-func (r *OraEventStoreReplicator) addFeedEvents(feed *atom.Feed,tx *sql.Tx) error {
+func findAggregateIndex(id string, entries []*atom.Entry) int {
+	for idx, entry := range entries {
+		if entry.ID == id {
+			return idx
+		}
+	}
+
+	return -1
+}
+
+func (r *OraEventStoreReplicator) addFeedEvents(aggregateID string, version int, feed *atom.Feed, tx *sql.Tx) error {
+	var idx int
+
+	//Find offset into the events
+	if aggregateID == "" {
+		idx = 0
+	} else {
+		id := fmt.Sprintf("urn:esid:%s%d", aggregateID, version)
+		idx = findAggregateIndex(id, feed.Entry)
+	}
+
+	if idx == -1 {
+		return errors.New("event not found in feed")
+	}
+
+	//Add the events from the feed
+	log.Infof("starting idx is %d", idx)
+	for i := idx; i < len(feed.Entry); i++ {
+		entry := feed.Entry[i]
+		idParts := strings.SplitN(entry.ID, ":", 4)
+		payload, err := base64.StdEncoding.DecodeString(entry.Content.Body)
+		if err != nil {
+			log.Errorf("Unable to decode payload for entry %-v", entry, "Skip processing of event")
+			continue
+		}
+
+		if idParts[2] == aggregateID {
+			//Already have this aggregate
+			continue
+		}
+
+		log.Infof("insert event for %v", entry.ID)
+		_, err = tx.Exec("insert into events (aggregate_id, version, typecode, timestamp, body) values(:1,:2,:3,:4,:5)",
+			idParts[2], idParts[3], entry.Content.Type, payload)
+		if err != nil {
+			log.Warnf("Replication insert failed: %s", err.Error())
+			return err
+		}
+
+		_, err = tx.Exec("insert into publish (aggregate_id, version) values(:1,:2)",
+			idParts[2], idParts[3])
+		if err != nil {
+			log.Warnf("Replication publish insert failed: %s", err.Error())
+			return err
+		}
+	}
+
 	return nil
 }
 
-func (r *OraEventStoreReplicator) findFeedByEvent(aggregateID string)(*atom.Feed,error) {
-	return nil,nil
+func (r *OraEventStoreReplicator) findFeedByEvent(aggregateID string, version int) (*atom.Feed, error) {
+	return nil, nil
 }
 
 func getLink(linkRelationship string, feed *atom.Feed) *string {
+	if feed == nil {
+		return nil
+	}
+
 	for _, l := range feed.Link {
 		if l.Rel == linkRelationship {
 			return &l.Href
@@ -122,12 +187,13 @@ func getLink(linkRelationship string, feed *atom.Feed) *string {
 }
 
 func feedIdFromResource(feedURL string) string {
-	url,_ := url.Parse(feedURL)
+	url, _ := url.Parse(feedURL)
 	parts := strings.Split(url.RequestURI(), "/")
-	return parts[len(parts) - 1]
+	return parts[len(parts)-1]
 }
 
-func (r *OraEventStoreReplicator) getFirstFeed()(*atom.Feed,error) {
+func (r *OraEventStoreReplicator) getFirstFeed() (*atom.Feed, error) {
+	log.Info("Looking for first feed")
 	//Start with recent
 	var feed *atom.Feed
 	var feedReadError error
@@ -139,9 +205,10 @@ func (r *OraEventStoreReplicator) getFirstFeed()(*atom.Feed,error) {
 
 	if feed == nil {
 		//Nothing in the feed if there's no recent available...
-		return nil,nil
+		return nil, nil
 	}
 
+	log.Info("Got feed - navigate prev-archive link")
 	for {
 		prev := getLink("prev-archive", feed)
 		if prev == nil {
@@ -150,13 +217,14 @@ func (r *OraEventStoreReplicator) getFirstFeed()(*atom.Feed,error) {
 
 		//Extract feed id from prev
 		feedID := feedIdFromResource(*prev)
+		log.Infof("Prev archive feed id is %s", feedID)
 		feed, feedReadError = r.feedReader.GetFeed(feedID)
 		if feedReadError != nil {
-			return nil,feedReadError
+			return nil, feedReadError
 		}
 	}
 
-	return feed,nil
+	return feed, nil
 }
 
 type OraEventStoreReplicatorFactory struct{}
