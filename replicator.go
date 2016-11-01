@@ -8,9 +8,9 @@ import (
 	log "github.com/Sirupsen/logrus"
 	"golang.org/x/tools/blog/atom"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
-	"sort"
 )
 
 type Locker interface {
@@ -122,8 +122,8 @@ func findAggregateIndex(id string, entries []*atom.Entry) int {
 
 type ByTimestamp []*atom.Entry
 
-func (t ByTimestamp) Len() int { return len(t)}
-func (t ByTimestamp) Swap(i, j int)      { t[i], t[j] = t[j], t[i] }
+func (t ByTimestamp) Len() int      { return len(t) }
+func (t ByTimestamp) Swap(i, j int) { t[i], t[j] = t[j], t[i] }
 func (t ByTimestamp) Less(i, j int) bool {
 	tsI, err := time.Parse(time.RFC3339Nano, string(t[i].Published))
 	if err != nil {
@@ -142,11 +142,11 @@ func (r *OraEventStoreReplicator) addFeedEvents(aggregateID string, version int,
 	var idx int
 
 	//Sort by timestamp
-	for _,e := range feed.Entry {
+	for _, e := range feed.Entry {
 		log.Info(e.ID)
 	}
 	sort.Sort(ByTimestamp(feed.Entry))
-	for _,e := range feed.Entry {
+	for _, e := range feed.Entry {
 		log.Info(e.ID)
 	}
 
@@ -185,7 +185,7 @@ func (r *OraEventStoreReplicator) addFeedEvents(aggregateID string, version int,
 
 		log.Infof("insert event for %v", entry.ID)
 		_, err = tx.Exec("insert into events (aggregate_id, version, typecode, timestamp, body) values(:1,:2,:3,:4,:5)",
-			idParts[2], idParts[3], entry.Content.Type, ts,payload)
+			idParts[2], idParts[3], entry.Content.Type, ts, payload)
 		if err != nil {
 			log.Warnf("Replication insert failed: %s", err.Error())
 			return err

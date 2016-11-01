@@ -31,12 +31,17 @@ func testExpectLock(mock sqlmock.Sqlmock, lockError bool, gotLock bool) {
 func testExpectInsertIntoEvents(mock sqlmock.Sqlmock, aggID, version string) {
 	execOkResult := sqlmock.NewResult(1, 1)
 	mock.ExpectExec("insert into events").WithArgs(aggID, version, sqlmock.AnyArg(),
-		sqlmock.AnyArg(),sqlmock.AnyArg()).WillReturnResult(execOkResult)
+		sqlmock.AnyArg(), sqlmock.AnyArg()).WillReturnResult(execOkResult)
 	mock.ExpectExec("insert into publish").WillReturnResult(execOkResult)
 }
 
 func testExpectQueryReturnNoRows(mock sqlmock.Sqlmock) {
 	rows := sqlmock.NewRows([]string{"aggregate_id", "version"})
+	mock.ExpectQuery("select aggregate_id, version from events where id").WillReturnRows(rows)
+}
+
+func testExpectQueryReturnAggregateAndVersion(mock sqlmock.Sqlmock, aggID, version string) {
+	rows := sqlmock.NewRows([]string{"aggregate_id", "version"}).AddRow(aggID, version)
 	mock.ExpectQuery("select aggregate_id, version from events where id").WillReturnRows(rows)
 }
 
@@ -188,16 +193,31 @@ func TestReplicateFromScratch(t *testing.T) {
 	assert.Nil(t, err)
 }
 
-func TestReplicateFromMidFeed(t *testing.T) {
+//For this test case, the last aggregate seen in the replicated store is the last event added to
+//the first feed. We expect all the events in the second feed to be added.
+func TestReplWhenLastInPageOneCurrent(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("an error '%s' was not expected when opening a stub database connection", err)
+	}
+	defer db.Close()
 
-}
+	mock.ExpectBegin()
+	testExpectLock(mock, false, true)
+	testExpectQueryReturnAggregateAndVersion(mock, "e44afbe7-e24f-4bdf-4fa8-9cfc46e4c496", "1")
+	testExpectInsertIntoEvents(mock, "3418b971-0ea8-483d-4520-9bfbc6a1d356", "1")
+	testExpectInsertIntoEvents(mock, "f3234d82-0cff-4221-64de-315c8ab6dbd6", "1")
+	testExpectInsertIntoEvents(mock, "9f02eae0-bf8c-46c1-7afb-9af83616b0ae", "1")
+	mock.ExpectCommit()
 
-func TestReplicateWithNewFeedAdded(t *testing.T) {
+	feedReader := initTestFeedReader()
 
-}
+	replicator, err := testFactory.New(new(TableLocker), feedReader, db)
 
-func TestReplicateCantLock(t *testing.T) {
+	replicator.ProcessFeed()
 
+	err = mock.ExpectationsWereMet()
+	assert.Nil(t, err)
 }
 
 var recent = `
