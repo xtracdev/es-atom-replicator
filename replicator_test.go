@@ -28,9 +28,10 @@ func testExpectLock(mock sqlmock.Sqlmock, lockError bool, gotLock bool) {
 }
 
 //TODO - add insert argument expectations then make sure we get the events in the correct order
-func testExpectInsertIntoEvents(mock sqlmock.Sqlmock) {
+func testExpectInsertIntoEvents(mock sqlmock.Sqlmock, aggID, version string) {
 	execOkResult := sqlmock.NewResult(1, 1)
-	mock.ExpectExec("insert into events").WillReturnResult(execOkResult)
+	mock.ExpectExec("insert into events").WithArgs(aggID, version, sqlmock.AnyArg(),
+		sqlmock.AnyArg(),sqlmock.AnyArg()).WillReturnResult(execOkResult)
 	mock.ExpectExec("insert into publish").WillReturnResult(execOkResult)
 }
 
@@ -172,9 +173,9 @@ func TestReplicateFromScratch(t *testing.T) {
 	mock.ExpectBegin()
 	testExpectLock(mock, false, true)
 	testExpectQueryReturnNoRows(mock)
-	testExpectInsertIntoEvents(mock)
-	testExpectInsertIntoEvents(mock)
-	testExpectInsertIntoEvents(mock)
+	testExpectInsertIntoEvents(mock, "cee18efc-0568-48f9-764c-149085ea0324", "1")
+	testExpectInsertIntoEvents(mock, "3a56b98b-0a03-4822-44c7-93216255d857", "1")
+	testExpectInsertIntoEvents(mock, "e44afbe7-e24f-4bdf-4fa8-9cfc46e4c496", "1")
 	mock.ExpectCommit()
 
 	feedReader := initTestFeedReader()

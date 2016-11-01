@@ -9,6 +9,8 @@ import (
 	"golang.org/x/tools/blog/atom"
 	"net/url"
 	"strings"
+	"time"
+	"sort"
 )
 
 type Locker interface {
@@ -118,8 +120,35 @@ func findAggregateIndex(id string, entries []*atom.Entry) int {
 	return -1
 }
 
+type ByTimestamp []*atom.Entry
+
+func (t ByTimestamp) Len() int { return len(t)}
+func (t ByTimestamp) Swap(i, j int)      { t[i], t[j] = t[j], t[i] }
+func (t ByTimestamp) Less(i, j int) bool {
+	tsI, err := time.Parse(time.RFC3339Nano, string(t[i].Published))
+	if err != nil {
+		return false
+	}
+
+	tsJ, err := time.Parse(time.RFC3339Nano, string(t[j].Published))
+	if err != nil {
+		return false
+	}
+
+	return tsJ.After(tsI)
+}
+
 func (r *OraEventStoreReplicator) addFeedEvents(aggregateID string, version int, feed *atom.Feed, tx *sql.Tx) error {
 	var idx int
+
+	//Sort by timestamp
+	for _,e := range feed.Entry {
+		log.Info(e.ID)
+	}
+	sort.Sort(ByTimestamp(feed.Entry))
+	for _,e := range feed.Entry {
+		log.Info(e.ID)
+	}
 
 	//Find offset into the events
 	if aggregateID == "" {
@@ -139,6 +168,11 @@ func (r *OraEventStoreReplicator) addFeedEvents(aggregateID string, version int,
 		entry := feed.Entry[i]
 		idParts := strings.SplitN(entry.ID, ":", 4)
 		payload, err := base64.StdEncoding.DecodeString(entry.Content.Body)
+		ts, err := time.Parse(time.RFC3339Nano, string(entry.Published))
+		if err != nil {
+			log.Errorf("Unable to parse timestamp for entry %-v", entry, "Skip processing of event")
+			continue
+		}
 		if err != nil {
 			log.Errorf("Unable to decode payload for entry %-v", entry, "Skip processing of event")
 			continue
@@ -151,7 +185,7 @@ func (r *OraEventStoreReplicator) addFeedEvents(aggregateID string, version int,
 
 		log.Infof("insert event for %v", entry.ID)
 		_, err = tx.Exec("insert into events (aggregate_id, version, typecode, timestamp, body) values(:1,:2,:3,:4,:5)",
-			idParts[2], idParts[3], entry.Content.Type, payload)
+			idParts[2], idParts[3], entry.Content.Type, ts,payload)
 		if err != nil {
 			log.Warnf("Replication insert failed: %s", err.Error())
 			return err
