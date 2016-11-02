@@ -111,7 +111,9 @@ func (r *OraEventStoreReplicator) ProcessFeed() error {
 }
 
 func findAggregateIndex(id string, entries []*atom.Entry) int {
+	log.Infof("Looking for %s", id)
 	for idx, entry := range entries {
+		log.Infof("got %s", entry.ID)
 		if entry.ID == id {
 			return idx
 		}
@@ -154,12 +156,14 @@ func (r *OraEventStoreReplicator) addFeedEvents(aggregateID string, version int,
 	if aggregateID == "" {
 		idx = 0
 	} else {
-		id := fmt.Sprintf("urn:esid:%s%d", aggregateID, version)
+		id := fmt.Sprintf("urn:esid:%s:%d", aggregateID, version)
 		idx = findAggregateIndex(id, feed.Entry)
-	}
 
-	if idx == -1 {
-		return errors.New("event not found in feed")
+		if idx == -1 {
+			//If not found, it means the previous feed contained the event
+			//as the last entry. Therefore we add all the events in this feed.
+			idx = 0
+		}
 	}
 
 	//Add the events from the feed
@@ -203,7 +207,75 @@ func (r *OraEventStoreReplicator) addFeedEvents(aggregateID string, version int,
 }
 
 func (r *OraEventStoreReplicator) findFeedByEvent(aggregateID string, version int) (*atom.Feed, error) {
-	return nil, nil
+	log.Infof("findFeedByEvent - %s %d", aggregateID, version)
+	var feedReadError error
+	var feed *atom.Feed
+	var found bool
+
+	//We need to find the feed containing a specific aggregate. If there are events 'later' in the
+	//feed, we return that feed, otherwise we return the 'next' feed (unless we are the recent feed
+	id := fmt.Sprintf("urn:esid:%s:%d", aggregateID, version)
+
+	//Is the event in the recent feed?
+	feed, err := r.feedReader.GetRecent()
+	if err != nil {
+		return nil, err
+	}
+
+	idx := findAggregateIndex(id, feed.Entry)
+	found = (idx != -1)
+
+	log.Infof("...event not found in recent feed, look in previous feeds")
+	if !found {
+
+		for {
+			prev := getLink("prev-archive", feed)
+			if prev == nil {
+				log.Info("...feed history exhausted")
+				break
+			}
+
+			//Extract feed id from prev
+			feedID := feedIdFromResource(*prev)
+			log.Infof("Prev archive feed id is %s", feedID)
+			feed, feedReadError = r.feedReader.GetFeed(feedID)
+			if feedReadError != nil {
+				return nil, feedReadError
+			}
+
+			idx = findAggregateIndex(id, feed.Entry)
+			if idx != -1 {
+				found = true
+				break
+			}
+		}
+	}
+
+	if found {
+		log.Infof("Event found in feed %s", feed.ID)
+		sort.Sort(ByTimestamp(feed.Entry))
+		idx := findAggregateIndex(id, feed.Entry)
+		log.Infof("Index in sorted feed: %d", idx)
+		if idx == len(feed.Entry)-1 {
+			log.Info("Return next feed as current aggregate is last entry in feed")
+			next := getLink("next-archive", feed)
+			if next == nil {
+				return nil, nil //We're at the end of recent
+			}
+
+			feedID := feedIdFromResource(*next)
+			feed, feedReadError = r.feedReader.GetFeed(feedID)
+			if feedReadError != nil {
+				return nil, feedReadError
+			}
+
+		}
+
+	}
+
+	log.Infof("returning feed %s", feed.ID)
+
+	return feed, nil
 }
 
 func getLink(linkRelationship string, feed *atom.Feed) *string {
