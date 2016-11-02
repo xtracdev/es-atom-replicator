@@ -243,6 +243,30 @@ func TestReplWhenLastInMidFeed(t *testing.T) {
 	assert.Nil(t, err)
 }
 
+func TestReplWhenLastIsLatest(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("an error '%s' was not expected when opening a stub database connection", err)
+	}
+	defer db.Close()
+
+	mock.ExpectBegin()
+	testExpectLock(mock, false, true)
+	testExpectQueryReturnAggregateAndVersion(mock, "9c5f255c-c5f2-42cb-7f06-5be564e91fd9", "1")
+
+	mock.ExpectCommit()
+
+	feedReader := initTestFeedReader()
+
+	replicator, err := testFactory.New(new(TableLocker), feedReader, db)
+	assert.Nil(t, err)
+
+	replicator.ProcessFeed()
+
+	err = mock.ExpectationsWereMet()
+	assert.Nil(t, err)
+}
+
 var recent = `
 <feed
     xmlns="http://www.w3.org/2005/Atom">
