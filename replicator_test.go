@@ -40,6 +40,10 @@ func testExpectQueryReturnNoRows(mock sqlmock.Sqlmock) {
 	mock.ExpectQuery("select aggregate_id, version from events where id").WillReturnRows(rows)
 }
 
+func testExpectQueryReturnError(mock sqlmock.Sqlmock) {
+	mock.ExpectQuery("select aggregate_id, version from events where id").WillReturnError(errors.New("dang"))
+}
+
 func testExpectQueryReturnAggregateAndVersion(mock sqlmock.Sqlmock, aggID, version string) {
 	rows := sqlmock.NewRows([]string{"aggregate_id", "version"}).AddRow(aggID, version)
 	mock.ExpectQuery("select aggregate_id, version from events where id").WillReturnRows(rows)
@@ -166,6 +170,33 @@ func TestReplicateEmpty(t *testing.T) {
 
 	err = mock.ExpectationsWereMet()
 	assert.Nil(t, err)
+}
+
+func TestReplicateLastEventQueryError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("an error '%s' was not expected when opening a stub database connection", err)
+	}
+	defer db.Close()
+
+	mock.ExpectBegin()
+	testExpectLock(mock, false, true)
+	testExpectQueryReturnError(mock)
+	mock.ExpectRollback()
+
+	locker := new(TableLocker)
+	replicator, err := testFactory.New(locker, new(testFeedReader), db)
+	assert.Nil(t, err)
+
+	err = replicator.ProcessFeed()
+	assert.NotNil(t, err)
+
+	err = mock.ExpectationsWereMet()
+	assert.Nil(t, err)
+
+	err = locker.ReleaseLock() //For code coverage
+	assert.Nil(t, err)
+
 }
 
 func TestReplicateFromScratch(t *testing.T) {
