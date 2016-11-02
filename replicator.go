@@ -1,12 +1,16 @@
 package replicator
 
 import (
+	"crypto/tls"
 	"database/sql"
 	"encoding/base64"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	log "github.com/Sirupsen/logrus"
 	"golang.org/x/tools/blog/atom"
+	"io/ioutil"
+	"net/http"
 	"net/url"
 	"sort"
 	"strings"
@@ -375,4 +379,63 @@ func (tl *TableLocker) GetLock(args ...interface{}) (bool, error) {
 
 func (tl *TableLocker) ReleaseLock() error {
 	return nil //Release done in transaction commit/rollback
+}
+
+type HttpReplicator struct {
+	endpoint string
+	client   *http.Client
+	proto    string
+}
+
+func NewHttpReplicator(endpoint string, tlsConfig *tls.Config) *HttpReplicator {
+
+	var client *http.Client
+	var proto string
+	if tlsConfig != nil {
+		client = http.DefaultClient
+		proto = "http"
+	} else {
+		transport := &http.Transport{
+			TLSClientConfig: tlsConfig,
+		}
+		client = &http.Client{Transport: transport}
+		proto = "https"
+	}
+	return &HttpReplicator{
+		endpoint: endpoint,
+		client:   client,
+		proto:    proto,
+	}
+}
+
+func (hr *HttpReplicator) GetRecent() (*atom.Feed, error) {
+	url := fmt.Sprintf("%s://%s/notifications/recent", hr.proto, hr.endpoint)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := hr.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	defer resp.Body.Close()
+
+	responseBytes, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var feed atom.Feed
+	err = xml.Unmarshal(responseBytes, &feed)
+	if err != nil {
+		return nil, err
+	}
+
+	return &feed, nil
+}
+
+func (hr *HttpReplicator) GetFeed(feedid string) (*atom.Feed, error) {
+	return nil, nil
 }

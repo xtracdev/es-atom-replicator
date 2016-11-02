@@ -298,6 +298,15 @@ func TestReplWhenLastIsLatest(t *testing.T) {
 	assert.Nil(t, err)
 }
 
+func TestLockerGetLockErrors(t *testing.T) {
+	locker := new(TableLocker)
+	_, err := locker.GetLock()
+	assert.NotNil(t, err)
+
+	_, err = locker.GetLock(1)
+	assert.NotNil(t, err)
+}
+
 var recent = `
 <feed
     xmlns="http://www.w3.org/2005/Atom">
