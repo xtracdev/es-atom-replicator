@@ -329,6 +329,28 @@ func TestHttpReplicatorGetRecent(t *testing.T) {
 	}
 }
 
+func TestHttpReplicatorGetFeedWithTLS(t *testing.T) {
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(secondArchive))
+	}))
+	defer ts.Close()
+
+	log.Infof("TLS server on %s", ts.URL)
+
+	url, _ := url.Parse(ts.URL)
+
+	tlsConfig := ts.TLS
+	tlsConfig.InsecureSkipVerify = true
+	httpReplicator := NewHttpReplicator(url.Host, ts.TLS)
+	assert.Equal(t, "https", httpReplicator.proto)
+
+	feed, err := httpReplicator.GetFeed("9BC3EA7D-51E2-8C61-0E08-02368CD22054")
+	assert.Nil(t, err)
+	if assert.NotNil(t, feed) {
+		assert.Equal(t, "9BC3EA7D-51E2-8C61-0E08-02368CD22054", feed.ID)
+	}
+}
+
 var recent = `
 <feed
     xmlns="http://www.w3.org/2005/Atom">
