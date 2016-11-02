@@ -388,10 +388,10 @@ type HttpReplicator struct {
 }
 
 func NewHttpReplicator(endpoint string, tlsConfig *tls.Config) *HttpReplicator {
-
 	var client *http.Client
 	var proto string
-	if tlsConfig != nil {
+
+	if tlsConfig == nil {
 		client = http.DefaultClient
 		proto = "http"
 	} else {
@@ -401,6 +401,7 @@ func NewHttpReplicator(endpoint string, tlsConfig *tls.Config) *HttpReplicator {
 		client = &http.Client{Transport: transport}
 		proto = "https"
 	}
+
 	return &HttpReplicator{
 		endpoint: endpoint,
 		client:   client,
@@ -410,6 +411,15 @@ func NewHttpReplicator(endpoint string, tlsConfig *tls.Config) *HttpReplicator {
 
 func (hr *HttpReplicator) GetRecent() (*atom.Feed, error) {
 	url := fmt.Sprintf("%s://%s/notifications/recent", hr.proto, hr.endpoint)
+	return hr.getResource(url)
+}
+
+func (hr *HttpReplicator) GetFeed(feedid string) (*atom.Feed, error) {
+	url := fmt.Sprintf("%s://%s/notifications/%s", hr.proto, hr.endpoint, feedid)
+	return hr.getResource(url)
+}
+
+func (hr *HttpReplicator) getResource(url string) (*atom.Feed, error) {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
@@ -434,8 +444,4 @@ func (hr *HttpReplicator) GetRecent() (*atom.Feed, error) {
 	}
 
 	return &feed, nil
-}
-
-func (hr *HttpReplicator) GetFeed(feedid string) (*atom.Feed, error) {
-	return nil, nil
 }

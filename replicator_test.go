@@ -7,6 +7,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"golang.org/x/tools/blog/atom"
 	"gopkg.in/DATA-DOG/go-sqlmock.v1"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"testing"
 )
 
@@ -305,6 +308,25 @@ func TestLockerGetLockErrors(t *testing.T) {
 
 	_, err = locker.GetLock(1)
 	assert.NotNil(t, err)
+}
+
+func TestHttpReplicatorGetRecent(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(recent))
+	}))
+	defer ts.Close()
+
+	url, _ := url.Parse(ts.URL)
+
+	log.Infof("test server endpoint is %s", url.Host)
+	httpReplicator := NewHttpReplicator(url.Host, nil)
+	assert.Equal(t, "http", httpReplicator.proto)
+
+	feed, err := httpReplicator.GetRecent()
+	assert.Nil(t, err)
+	if assert.NotNil(t, feed) {
+		assert.Equal(t, "recent", feed.ID)
+	}
 }
 
 var recent = `
