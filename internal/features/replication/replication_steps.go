@@ -45,6 +45,7 @@ func init() {
 	})
 
 	Then(`^the first feed page is replicated$`, func() {
+		log.Info("==> the first feed page is replicated")
 		dbEntries,err := getEntries(db)
 		if assert.Nil(T,err) {
 			var feed atom.Feed
