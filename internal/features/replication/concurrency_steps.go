@@ -1,12 +1,12 @@
 package replication
 
 import (
-	. "github.com/gucumber/gucumber"
-	"github.com/xtracdev/es-atom-replicator"
-	log "github.com/Sirupsen/logrus"
-	"sync"
 	"database/sql"
+	log "github.com/Sirupsen/logrus"
+	. "github.com/gucumber/gucumber"
 	"github.com/stretchr/testify/assert"
+	"github.com/xtracdev/es-atom-replicator"
+	"sync"
 )
 
 func init() {
@@ -21,7 +21,6 @@ func init() {
 	var envInitErr2 error
 
 	replicator2, _, envInitErr2 = initializeEnvironment()
-
 
 	Given(`^two replicators$`, func() {
 		if envInitErr1 != nil || envInitErr2 != nil {
@@ -55,12 +54,8 @@ func init() {
 			wg.Done()
 		}()
 
-
 		wg.Wait()
 
-
 	})
-
-
 
 }

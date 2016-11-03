@@ -1,17 +1,17 @@
 package replication
 
 import (
-	. "github.com/gucumber/gucumber"
 	"database/sql"
+	"encoding/base64"
+	"encoding/xml"
+	"fmt"
 	log "github.com/Sirupsen/logrus"
+	. "github.com/gucumber/gucumber"
 	"github.com/stretchr/testify/assert"
 	"github.com/xtracdev/es-atom-replicator"
 	feedmock "github.com/xtracdev/es-atom-replicator/testing"
 	"golang.org/x/tools/blog/atom"
 	"time"
-	"encoding/base64"
-	"fmt"
-	"encoding/xml"
 )
 
 func init() {
@@ -46,13 +46,13 @@ func init() {
 
 	Then(`^the first feed page is replicated$`, func() {
 		log.Info("==> the first feed page is replicated")
-		dbEntries,err := getEntries(db)
-		if assert.Nil(T,err) {
+		dbEntries, err := getEntries(db)
+		if assert.Nil(T, err) {
 			var feed atom.Feed
-			xml.Unmarshal([]byte(feedmock.FirstArchive),&feed)
+			xml.Unmarshal([]byte(feedmock.FirstArchive), &feed)
 
 			feedEntries := feed.Entry
-			if assert.Equal(T, len(feed.Entry),len(dbEntries), "Different no of entries in feeds") {
+			if assert.Equal(T, len(feed.Entry), len(dbEntries), "Different no of entries in feeds") {
 				for idx, entry := range dbEntries {
 					assert.Equal(T, entry.ID, feedEntries[idx].ID)
 				}
@@ -62,10 +62,10 @@ func init() {
 
 }
 
-func getEntries(db *sql.DB) ([]*atom.Entry,error) {
+func getEntries(db *sql.DB) ([]*atom.Entry, error) {
 	var entries []*atom.Entry
 
-	rows,err := db.Query("select event_time,aggregate_id,version,typecode,payload from events order by event_time desc")
+	rows, err := db.Query("select event_time,aggregate_id,version,typecode,payload from events order by event_time desc")
 	if err != nil {
 		return entries, err
 	}
@@ -79,9 +79,9 @@ func getEntries(db *sql.DB) ([]*atom.Entry,error) {
 		var typecode string
 		var payload []byte
 
-		err := rows.Scan(&ts, &aggID,&version,&typecode,&payload)
+		err := rows.Scan(&ts, &aggID, &version, &typecode, &payload)
 		if err != nil {
-			return entries,err
+			return entries, err
 		}
 
 		content := &atom.Text{
@@ -99,6 +99,6 @@ func getEntries(db *sql.DB) ([]*atom.Entry,error) {
 		entries = append(entries, entry)
 	}
 
-	return entries,nil
+	return entries, nil
 
 }

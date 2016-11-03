@@ -17,30 +17,40 @@ import (
 	"time"
 )
 
+//Locker defines the locking interface needed for processing feed events.
+//The goal is to be able to deploy multiple instances of the feed processor,
+//with only a single processor processing a set of events at a time.
 type Locker interface {
 	GetLock(lockerArgs ...interface{}) (bool, error)
 	ReleaseLock() error
 }
 
+//FeedReader defines the interface used to read the feed.
 type FeedReader interface {
 	GetRecent() (*atom.Feed, error)
 	GetFeed(feedid string) (*atom.Feed, error)
 }
 
+//Replicator defines the interface replicators implement
 type Replicator interface {
 	ProcessFeed() error
 }
 
+//ReplicatorFactory defines the interface for instantiating replicators.
 type ReplicatorFactory interface {
 	New(locker Locker, feedReader FeedReader, extras ...interface{}) (Replicator, error)
 }
 
+//OraEventStoreReplicator defines a replicator instance that replicates a feed
+//to an Oracle event store
 type OraEventStoreReplicator struct {
 	db         *sql.DB
 	locker     Locker
 	feedReader FeedReader
 }
 
+//ProcessFeed processes the atom feed based on the current state of
+//the replicated events
 func (r *OraEventStoreReplicator) ProcessFeed() error {
 
 	//Do the work in a transaction
@@ -115,9 +125,7 @@ func (r *OraEventStoreReplicator) ProcessFeed() error {
 }
 
 func findAggregateIndex(id string, entries []*atom.Entry) int {
-	log.Infof("Looking for %s", id)
 	for idx, entry := range entries {
-		log.Infof("got %s", entry.ID)
 		if entry.ID == id {
 			return idx
 		}
@@ -126,10 +134,17 @@ func findAggregateIndex(id string, entries []*atom.Entry) int {
 	return -1
 }
 
+//ByTimestamp defines a type for sorting atom entries by their timestamp
 type ByTimestamp []*atom.Entry
 
-func (t ByTimestamp) Len() int      { return len(t) }
-func (t ByTimestamp) Swap(i, j int) { t[i], t[j] = t[j], t[i] }
+func (t ByTimestamp) Len() int {
+	return len(t)
+}
+
+func (t ByTimestamp) Swap(i, j int) {
+	t[i], t[j] = t[j], t[i]
+}
+
 func (t ByTimestamp) Less(i, j int) bool {
 	tsI, err := time.Parse(time.RFC3339Nano, string(t[i].Published))
 	if err != nil {
@@ -148,13 +163,7 @@ func (r *OraEventStoreReplicator) addFeedEvents(aggregateID string, version int,
 	var idx int
 
 	//Sort by timestamp
-	for _, e := range feed.Entry {
-		log.Info(e.ID)
-	}
 	sort.Sort(ByTimestamp(feed.Entry))
-	for _, e := range feed.Entry {
-		log.Info(e.ID)
-	}
 
 	//Find offset into the events
 	if aggregateID == "" {
@@ -171,7 +180,6 @@ func (r *OraEventStoreReplicator) addFeedEvents(aggregateID string, version int,
 	}
 
 	//Add the events from the feed
-	log.Infof("starting idx is %d", idx)
 	for i := idx; i < len(feed.Entry); i++ {
 		entry := feed.Entry[i]
 		idParts := strings.SplitN(entry.ID, ":", 4)
