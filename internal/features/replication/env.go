@@ -3,17 +3,18 @@ package replication
 import (
 	"github.com/xtracdev/es-atom-replicator"
 	"github.com/xtracdev/oraconn"
+	"database/sql"
 )
 
-func initializeEnvironment() (replicator.Replicator, error) {
+func initializeEnvironment() (replicator.Replicator, *sql.DB, error) {
 	dbEnvConfig, err := oraconn.NewEnvConfig()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	oraDB, err := oraconn.OpenAndConnect(dbEnvConfig.ConnectString(), 10)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	locker := new(replicator.TableLocker)
@@ -22,5 +23,5 @@ func initializeEnvironment() (replicator.Replicator, error) {
 	factory := replicator.OraEventStoreReplicatorFactory{}
 
 	rep, err := factory.New(locker, feedReader, oraDB.DB)
-	return rep, err
+	return rep, oraDB.DB, err
 }
