@@ -192,7 +192,7 @@ func (r *OraEventStoreReplicator) addFeedEvents(aggregateID string, version int,
 		}
 
 		log.Infof("insert event for %v", entry.ID)
-		_, err = tx.Exec("insert into events (aggregate_id, version, typecode, timestamp, body) values(:1,:2,:3,:4,:5)",
+		_, err = tx.Exec("insert into events (aggregate_id, version, typecode, event_time, payload) values(:1,:2,:3,:4,:5)",
 			idParts[2], idParts[3], entry.Content.Type, ts, payload)
 		if err != nil {
 			log.Warnf("Replication insert failed: %s", err.Error())
@@ -362,7 +362,7 @@ func (tl *TableLocker) GetLock(args ...interface{}) (bool, error) {
 	}
 
 	log.Info("locking table replicator_lock")
-	_, err := tx.Exec("lock table replicator_lock nowait")
+	_, err := tx.Exec("lock table replicator_lock in exclusive mode nowait")
 	if err == nil {
 		log.Info("Acquired lock")
 		return true, nil

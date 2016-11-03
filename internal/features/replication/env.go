@@ -1,9 +1,14 @@
 package replication
 
 import (
-	"github.com/xtracdev/es-atom-replicator"
-	"github.com/xtracdev/oraconn"
 	"database/sql"
+	log "github.com/Sirupsen/logrus"
+	"github.com/xtracdev/es-atom-replicator"
+	feedmock "github.com/xtracdev/es-atom-replicator/testing"
+	"github.com/xtracdev/oraconn"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 )
 
 func initializeEnvironment() (replicator.Replicator, *sql.DB, error) {
@@ -17,11 +22,16 @@ func initializeEnvironment() (replicator.Replicator, *sql.DB, error) {
 		return nil, nil, err
 	}
 
+	ts := httptest.NewServer(http.HandlerFunc(feedmock.GetFeedHandler))
+	url, _ := url.Parse(ts.URL)
+
+	log.Infof("test server endpoint is %s", url.Host)
+	httpReplicator := replicator.NewHttpReplicator(url.Host, nil)
+
 	locker := new(replicator.TableLocker)
-	feedReader := new(replicator.HttpReplicator)
 
 	factory := replicator.OraEventStoreReplicatorFactory{}
 
-	rep, err := factory.New(locker, feedReader, oraDB.DB)
+	rep, err := factory.New(locker, httpReplicator, oraDB.DB)
 	return rep, oraDB.DB, err
 }

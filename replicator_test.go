@@ -5,28 +5,28 @@ import (
 	"errors"
 	log "github.com/Sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	feedmock "github.com/xtracdev/es-atom-replicator/testing"
 	"golang.org/x/tools/blog/atom"
 	"gopkg.in/DATA-DOG/go-sqlmock.v1"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"testing"
-	feedmock "github.com/xtracdev/es-atom-replicator/testing"
 )
 
 var testFactory = &OraEventStoreReplicatorFactory{}
 
 func testExpectLock(mock sqlmock.Sqlmock, lockError bool, gotLock bool) {
 	if lockError {
-		mock.ExpectExec("lock table replicator_lock nowait").WillReturnError(errors.New("BAM!"))
+		mock.ExpectExec("lock table replicator_lock in exclusive mode nowait").WillReturnError(errors.New("BAM!"))
 		return
 	}
 
 	if gotLock {
 		execOkResult := sqlmock.NewResult(1, 1)
-		mock.ExpectExec("lock table replicator_lock nowait").WillReturnResult(execOkResult)
+		mock.ExpectExec("lock table replicator_lock in exclusive mode nowait").WillReturnResult(execOkResult)
 	} else {
-		mock.ExpectExec("lock table replicator_lock nowait").WillReturnError(errors.New("ORA-00054: resource busy and acquire with NOWAIT specified or timeout expired"))
+		mock.ExpectExec("lock table replicator_lock in exclusive mode nowait").WillReturnError(errors.New("ORA-00054: resource busy and acquire with NOWAIT specified or timeout expired"))
 	}
 
 }
@@ -347,5 +347,3 @@ func TestHttpReplicatorGetFeedWithTLS(t *testing.T) {
 		assert.Equal(t, "9BC3EA7D-51E2-8C61-0E08-02368CD22054", feed.ID)
 	}
 }
-
-

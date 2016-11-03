@@ -104,11 +104,10 @@ var FirstArchive = `
 `
 
 var RecentHandler = func(w http.ResponseWriter, r *http.Request) {
-				w.Write([]byte(Recent))
-			}
+	w.Write([]byte(Recent))
+}
 
 var GetFeedHandler = func(w http.ResponseWriter, r *http.Request) {
-
 
 	parts := strings.Split(r.URL.Path, "/")
 	feedid := parts[len(parts)-1]
@@ -130,4 +129,3 @@ var GetFeedHandler = func(w http.ResponseWriter, r *http.Request) {
 
 	w.Write([]byte(feedData))
 }
-

@@ -3,18 +3,19 @@ package replication
 import (
 	. "github.com/gucumber/gucumber"
 	//"github.com/xtracdev/es-atom-replicator"
+	"database/sql"
 	log "github.com/Sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
-	"database/sql"
+	"github.com/xtracdev/es-atom-replicator"
 )
 
 func init() {
 
-	//var replicator replicator.Replicator
+	var replicator replicator.Replicator
 	var db *sql.DB
 	var envInitErr error
 
-	_, db, envInitErr = initializeEnvironment()
+	replicator, db, envInitErr = initializeEnvironment()
 
 	Given(`^a replicator$`, func() {
 		log.Info("check init")
@@ -26,15 +27,16 @@ func init() {
 	})
 
 	And(`^an empty replication db$`, func() {
-		_,err := db.Exec("delete from events")
+		_, err := db.Exec("delete from events")
 		assert.Nil(T, err)
 
-		_,err = db.Exec("delete from publish")
-		assert.Nil(T,err)
+		_, err = db.Exec("delete from publish")
+		assert.Nil(T, err)
 	})
 
 	When(`^I process events$`, func() {
-		T.Skip() // pending
+		err := replicator.ProcessFeed()
+		assert.Nil(T, err)
 	})
 
 	Then(`^the first feed page is replicated$`, func() {
