@@ -5,4 +5,4 @@ Feature: Replicator must acquire table lock to perform processing.
     And no events have been replicated
     When both are started
     Then only one may execute the catch up logic
-    And the first feed page is replicated
+    And at least the first feed page is replicated

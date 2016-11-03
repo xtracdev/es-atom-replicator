@@ -33,7 +33,7 @@ type FeedReader interface {
 
 //Replicator defines the interface replicators implement
 type Replicator interface {
-	ProcessFeed() error
+	ProcessFeed() (bool, error)
 }
 
 //ReplicatorFactory defines the interface for instantiating replicators.
@@ -51,14 +51,14 @@ type OraEventStoreReplicator struct {
 
 //ProcessFeed processes the atom feed based on the current state of
 //the replicated events
-func (r *OraEventStoreReplicator) ProcessFeed() error {
+func (r *OraEventStoreReplicator) ProcessFeed() (bool, error) {
 
 	//Do the work in a transaction
 	log.Info("ProcessFeed start transaction")
 	tx, err := r.db.Begin()
 	if err != nil {
 		log.Warnf("Error starting transaction: %s", err.Error())
-		return err
+		return false, err
 	}
 
 	//Get lock within the context of a transaction
@@ -67,13 +67,13 @@ func (r *OraEventStoreReplicator) ProcessFeed() error {
 	if err != nil {
 		log.Warnf("Error obtaining lock: %s", err.Error())
 		tx.Rollback()
-		return err
+		return false, err
 	}
 
 	if !locked {
 		log.Info("ProcessFeed did not get lock... returning.")
 		tx.Rollback()
-		return nil
+		return false, nil
 	}
 
 	//What's the last event seen?
@@ -84,7 +84,7 @@ func (r *OraEventStoreReplicator) ProcessFeed() error {
 	if err != nil && err != sql.ErrNoRows {
 		log.Warnf("Error querying for last event: %s", err.Error())
 		tx.Rollback()
-		return err
+		return true, err
 	}
 
 	//Find the feed with the event
@@ -99,7 +99,7 @@ func (r *OraEventStoreReplicator) ProcessFeed() error {
 	if findFeedErr != nil {
 		log.Warnf("Unable to retrieve feed data: %s", findFeedErr.Error())
 		tx.Rollback()
-		return findFeedErr
+		return true, findFeedErr
 	}
 
 	//Add all the events in this feed that have not been added before
@@ -109,7 +109,7 @@ func (r *OraEventStoreReplicator) ProcessFeed() error {
 		if err != nil {
 			log.Warnf("Unable to add feed events: %s", err.Error())
 			tx.Rollback()
-			return err
+			return true, err
 		}
 	} else {
 		log.Info("No events found in feed")
@@ -121,7 +121,7 @@ func (r *OraEventStoreReplicator) ProcessFeed() error {
 		log.Warnf("Error commiting work: %s", err.Error())
 	}
 
-	return nil
+	return true, nil
 }
 
 func findAggregateIndex(id string, entries []*atom.Entry) int {

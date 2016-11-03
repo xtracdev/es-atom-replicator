@@ -107,7 +107,7 @@ func TestReplicateTxnStartError(t *testing.T) {
 	replicator, err := testFactory.New(new(TableLocker), new(testFeedReader), db)
 	assert.Nil(t, err)
 
-	err = replicator.ProcessFeed()
+	_, err = replicator.ProcessFeed()
 	assert.NotNil(t, err)
 
 	err = mock.ExpectationsWereMet()
@@ -127,7 +127,7 @@ func TestLockError(t *testing.T) {
 	replicator, err := testFactory.New(new(TableLocker), new(testFeedReader), db)
 	assert.Nil(t, err)
 
-	err = replicator.ProcessFeed()
+	_, err = replicator.ProcessFeed()
 	assert.NotNil(t, err)
 
 	err = mock.ExpectationsWereMet()
@@ -148,7 +148,7 @@ func TestLockNotAcquired(t *testing.T) {
 	replicator, err := testFactory.New(new(TableLocker), new(testFeedReader), db)
 	assert.Nil(t, err)
 
-	err = replicator.ProcessFeed()
+	_, err = replicator.ProcessFeed()
 	assert.Nil(t, err)
 
 	err = mock.ExpectationsWereMet()
@@ -192,7 +192,7 @@ func TestReplicateLastEventQueryError(t *testing.T) {
 	replicator, err := testFactory.New(locker, new(testFeedReader), db)
 	assert.Nil(t, err)
 
-	err = replicator.ProcessFeed()
+	_, err = replicator.ProcessFeed()
 	assert.NotNil(t, err)
 
 	err = mock.ExpectationsWereMet()

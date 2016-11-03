@@ -40,7 +40,7 @@ func init() {
 	})
 
 	When(`^I process events$`, func() {
-		err := replicator.ProcessFeed()
+		_, err := replicator.ProcessFeed()
 		assert.Nil(T, err)
 	})
 
