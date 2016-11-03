@@ -159,6 +159,9 @@ func (t ByTimestamp) Less(i, j int) bool {
 	return tsJ.After(tsI)
 }
 
+//addFeedEvents adds events to the replicated feed store based on the offset into the event feed of the
+//last observed event. The scope of the events added is a single page, multiple calls of process events
+//are needed to get a feed fully synced up
 func (r *OraEventStoreReplicator) addFeedEvents(aggregateID string, version int, feed *atom.Feed, tx *sql.Tx) error {
 	var idx int
 
@@ -218,6 +221,8 @@ func (r *OraEventStoreReplicator) addFeedEvents(aggregateID string, version int,
 	return nil
 }
 
+//findFeedByEvent finds the feed containing the given event, or, if the event is the last event in a feed, the
+//next feed.
 func (r *OraEventStoreReplicator) findFeedByEvent(aggregateID string, version int) (*atom.Feed, error) {
 	log.Infof("findFeedByEvent - %s %d", aggregateID, version)
 	var feedReadError error
@@ -290,6 +295,8 @@ func (r *OraEventStoreReplicator) findFeedByEvent(aggregateID string, version in
 	return feed, nil
 }
 
+//Get link extracts the given link relationship from the given feed's
+//link collection
 func getLink(linkRelationship string, feed *atom.Feed) *string {
 	if feed == nil {
 		return nil
@@ -304,12 +311,15 @@ func getLink(linkRelationship string, feed *atom.Feed) *string {
 	return nil
 }
 
+//Grab the feed id as the component of a uri
 func feedIdFromResource(feedURL string) string {
 	url, _ := url.Parse(feedURL)
 	parts := strings.Split(url.RequestURI(), "/")
 	return parts[len(parts)-1]
 }
 
+//Get first feed navigates a feed set from the recent feed all the way back
+//to the first acchived feed
 func (r *OraEventStoreReplicator) getFirstFeed() (*atom.Feed, error) {
 	log.Info("Looking for first feed")
 	//Start with recent
@@ -345,8 +355,10 @@ func (r *OraEventStoreReplicator) getFirstFeed() (*atom.Feed, error) {
 	return feed, nil
 }
 
+//OraEventStoreReplicatorFactory defines a type implementing the ReplicatorFactory interface.
 type OraEventStoreReplicatorFactory struct{}
 
+//New instantiates an OraEventStoreReplicator
 func (oesFact *OraEventStoreReplicatorFactory) New(locker Locker, feedReader FeedReader, db *sql.DB) (Replicator, error) {
 	return &OraEventStoreReplicator{
 		db:         db,
@@ -355,10 +367,13 @@ func (oesFact *OraEventStoreReplicatorFactory) New(locker Locker, feedReader Fee
 	}, nil
 }
 
+//TableLocker defines a type for implmenting the Locker interface based on table locking
 type TableLocker struct{}
 
 var errGetLockArgument = errors.New("Table locker GetLock expects a single argument of type *sql.Tx")
 
+//GetLock obtains a table lock. If the lock cannot be obtained it returns immediately (it
+//does not block)
 func (tl *TableLocker) GetLock(args ...interface{}) (bool, error) {
 	if len(args) != 1 {
 		return false, errGetLockArgument
@@ -385,16 +400,20 @@ func (tl *TableLocker) GetLock(args ...interface{}) (bool, error) {
 	}
 }
 
+//ReleaseLock - the enclosing transaction for the table locker
+//releases the table lock on commit or rollback
 func (tl *TableLocker) ReleaseLock() error {
 	return nil //Release done in transaction commit/rollback
 }
 
+//HttpReplicator defines a type for an Http Feed reader
 type HttpReplicator struct {
 	endpoint string
 	client   *http.Client
 	proto    string
 }
 
+//NewHttpReplicator is a factory for instantiating HttpReplicators
 func NewHttpReplicator(endpoint string, tlsConfig *tls.Config) *HttpReplicator {
 	var client *http.Client
 	var proto string
@@ -417,16 +436,19 @@ func NewHttpReplicator(endpoint string, tlsConfig *tls.Config) *HttpReplicator {
 	}
 }
 
+//GetRecent returns the recent notifications
 func (hr *HttpReplicator) GetRecent() (*atom.Feed, error) {
 	url := fmt.Sprintf("%s://%s/notifications/recent", hr.proto, hr.endpoint)
 	return hr.getResource(url)
 }
 
+//GetFeed returns the specific feed
 func (hr *HttpReplicator) GetFeed(feedid string) (*atom.Feed, error) {
 	url := fmt.Sprintf("%s://%s/notifications/%s", hr.proto, hr.endpoint, feedid)
 	return hr.getResource(url)
 }
 
+//getResource does a git on the specified feed resource
 func (hr *HttpReplicator) getResource(url string) (*atom.Feed, error) {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
