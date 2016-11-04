@@ -15,6 +15,13 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"os"
+	"github.com/armon/go-metrics"
+)
+
+const (
+	replicatedCount = "replicated-events"
+	errorCount = "replication-errors"
 )
 
 //Locker defines the locking interface needed for processing feed events.
@@ -57,6 +64,7 @@ func (r *OraEventStoreReplicator) ProcessFeed() (bool, error) {
 	log.Info("ProcessFeed start transaction")
 	tx, err := r.db.Begin()
 	if err != nil {
+		incrementCounts(errorCount,1)
 		log.Warnf("Error starting transaction: %s", err.Error())
 		return false, err
 	}
@@ -65,6 +73,7 @@ func (r *OraEventStoreReplicator) ProcessFeed() (bool, error) {
 	log.Info("Get table lock")
 	locked, err := r.locker.GetLock(tx)
 	if err != nil {
+		incrementCounts(errorCount,1)
 		log.Warnf("Error obtaining lock: %s", err.Error())
 		tx.Rollback()
 		return false, err
@@ -82,6 +91,7 @@ func (r *OraEventStoreReplicator) ProcessFeed() (bool, error) {
 	var version int
 	err = tx.QueryRow("select aggregate_id, version from events where id = (select max(id) from events)").Scan(&aggregateID, &version)
 	if err != nil && err != sql.ErrNoRows {
+		incrementCounts(errorCount,1)
 		log.Warnf("Error querying for last event: %s", err.Error())
 		tx.Rollback()
 		return true, err
@@ -97,6 +107,7 @@ func (r *OraEventStoreReplicator) ProcessFeed() (bool, error) {
 	}
 
 	if findFeedErr != nil {
+		incrementCounts(errorCount,1)
 		log.Warnf("Unable to retrieve feed data: %s", findFeedErr.Error())
 		tx.Rollback()
 		return true, findFeedErr
@@ -107,6 +118,7 @@ func (r *OraEventStoreReplicator) ProcessFeed() (bool, error) {
 		log.Info("Feed with events to process has been found")
 		err = r.addFeedEvents(aggregateID, version, feed, tx)
 		if err != nil {
+			incrementCounts(errorCount,1)
 			log.Warnf("Unable to add feed events: %s", err.Error())
 			tx.Rollback()
 			return true, err
@@ -118,6 +130,7 @@ func (r *OraEventStoreReplicator) ProcessFeed() (bool, error) {
 	//Unlock
 	err = tx.Commit()
 	if err != nil {
+		incrementCounts(errorCount,1)
 		log.Warnf("Error commiting work: %s", err.Error())
 	}
 
@@ -217,6 +230,8 @@ func (r *OraEventStoreReplicator) addFeedEvents(aggregateID string, version int,
 			return err
 		}
 	}
+
+	incrementCounts(replicatedCount,len(feed.Entry))
 
 	return nil
 }
@@ -406,15 +421,15 @@ func (tl *TableLocker) ReleaseLock() error {
 	return nil //Release done in transaction commit/rollback
 }
 
-//HttpReplicator defines a type for an Http Feed reader
-type HttpReplicator struct {
+//HttpFeedReader defines a type for an Http Feed reader
+type HttpFeedReader struct {
 	endpoint string
 	client   *http.Client
 	proto    string
 }
 
-//NewHttpReplicator is a factory for instantiating HttpReplicators
-func NewHttpReplicator(endpoint string, tlsConfig *tls.Config) *HttpReplicator {
+//NewHttpFeedReader is a factory for instantiating HttpFeedReaders
+func NewHttpFeedReader(endpoint string, tlsConfig *tls.Config) *HttpFeedReader {
 	var client *http.Client
 	var proto string
 
@@ -429,7 +444,7 @@ func NewHttpReplicator(endpoint string, tlsConfig *tls.Config) *HttpReplicator {
 		proto = "https"
 	}
 
-	return &HttpReplicator{
+	return &HttpFeedReader{
 		endpoint: endpoint,
 		client:   client,
 		proto:    proto,
@@ -437,19 +452,19 @@ func NewHttpReplicator(endpoint string, tlsConfig *tls.Config) *HttpReplicator {
 }
 
 //GetRecent returns the recent notifications
-func (hr *HttpReplicator) GetRecent() (*atom.Feed, error) {
+func (hr *HttpFeedReader) GetRecent() (*atom.Feed, error) {
 	url := fmt.Sprintf("%s://%s/notifications/recent", hr.proto, hr.endpoint)
 	return hr.getResource(url)
 }
 
 //GetFeed returns the specific feed
-func (hr *HttpReplicator) GetFeed(feedid string) (*atom.Feed, error) {
+func (hr *HttpFeedReader) GetFeed(feedid string) (*atom.Feed, error) {
 	url := fmt.Sprintf("%s://%s/notifications/%s", hr.proto, hr.endpoint, feedid)
 	return hr.getResource(url)
 }
 
 //getResource does a git on the specified feed resource
-func (hr *HttpReplicator) getResource(url string) (*atom.Feed, error) {
+func (hr *HttpFeedReader) getResource(url string) (*atom.Feed, error) {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
@@ -474,4 +489,52 @@ func (hr *HttpReplicator) getResource(url string) (*atom.Feed, error) {
 	}
 
 	return &feed, nil
+}
+
+//Configure where telemery data goes. Currently this can be send via UDP to a listener, or can be buffered
+//internally and dumped via a signal.
+func ConfigureStatsD() {
+	statsdEndpoint := os.Getenv("STATSD_ENDPOINT")
+	log.Infof("STATSD_ENDPOINT: %s", statsdEndpoint)
+
+	if statsdEndpoint != "" {
+
+		log.Info("Using vanilla statsd client to send telemetry to ", statsdEndpoint)
+		sink, err := metrics.NewStatsdSink(statsdEndpoint)
+		if err != nil {
+			log.Warn("Unable to configure statds sink", err.Error())
+			return
+		}
+		metrics.NewGlobal(metrics.DefaultConfig(statsdEndpoint), sink)
+	} else {
+		log.Info("Using in memory metrics accumulator - dump via USR1 signal")
+		inm := metrics.NewInmemSink(10*time.Second, 5*time.Minute)
+		metrics.DefaultInmemSignal(inm)
+		metrics.NewGlobal(metrics.DefaultConfig("xavi"), inm)
+	}
+}
+
+//Update counters and stats for timings, discriminating errors from non-errors
+func logTimingStats(svc string, start time.Time, err error) {
+	duration := time.Now().Sub(start)
+	go func(svc string, duration time.Duration, err error) {
+		ms := float32(duration.Nanoseconds()) / 1000.0 / 1000.0
+		if err != nil {
+			key := []string{"es-atom-replicator", fmt.Sprintf("%s-error", svc)}
+			metrics.AddSample(key, float32(ms))
+			metrics.IncrCounter(key, 1)
+		} else {
+			key := []string{"es-atom-replicator", svc}
+			metrics.AddSample(key, float32(ms))
+			metrics.IncrCounter(key, 1)
+		}
+	}(svc, duration, err)
+}
+
+//Counters
+func incrementCounts(counter string, increment int) {
+	go func(counter string, increment int) {
+		key := []string{"es-atom-replicator", counter}
+		metrics.IncrCounter(key, float32(increment))
+	}(counter, increment)
 }
