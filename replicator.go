@@ -24,6 +24,13 @@ const (
 	errorCount = "replication-errors"
 )
 
+const (
+	sqlLastObservedEvent = `select aggregate_id, version from events where id = (select max(id) from events)`
+	sqlInsertEvent = `insert into events (aggregate_id, version, typecode, event_time, payload) values(:1,:2,:3,:4,:5)`
+	sqlInsertPublish = `insert into publish (aggregate_id, version) values(:1,:2)`
+	sqlLockTable = `lock table replicator_lock in exclusive mode nowait`
+)
+
 //Locker defines the locking interface needed for processing feed events.
 //The goal is to be able to deploy multiple instances of the feed processor,
 //with only a single processor processing a set of events at a time.
@@ -89,7 +96,11 @@ func (r *OraEventStoreReplicator) ProcessFeed() (bool, error) {
 	log.Info("Select last event observed in replicated event feed")
 	var aggregateID string
 	var version int
-	err = tx.QueryRow("select aggregate_id, version from events where id = (select max(id) from events)").Scan(&aggregateID, &version)
+
+	start := time.Now()
+	err = tx.QueryRow(sqlLastObservedEvent).Scan(&aggregateID, &version)
+	logTimingStats("sqlLastObservedEvent", start, err)
+
 	if err != nil && err != sql.ErrNoRows {
 		incrementCounts(errorCount,1)
 		log.Warnf("Error querying for last event: %s", err.Error())
@@ -216,15 +227,22 @@ func (r *OraEventStoreReplicator) addFeedEvents(aggregateID string, version int,
 		}
 
 		log.Infof("insert event for %v", entry.ID)
-		_, err = tx.Exec("insert into events (aggregate_id, version, typecode, event_time, payload) values(:1,:2,:3,:4,:5)",
+
+		start := time.Now()
+		_, err = tx.Exec(sqlInsertEvent,
 			idParts[2], idParts[3], entry.Content.Type, ts, payload)
+		logTimingStats("sqlInsertEvent",start,err)
+
 		if err != nil {
 			log.Warnf("Replication insert failed: %s", err.Error())
 			return err
 		}
 
-		_, err = tx.Exec("insert into publish (aggregate_id, version) values(:1,:2)",
+		start = time.Now()
+		_, err = tx.Exec(sqlInsertPublish,
 			idParts[2], idParts[3])
+		logTimingStats("sqlInsertPublish",start,err)
+
 		if err != nil {
 			log.Warnf("Replication publish insert failed: %s", err.Error())
 			return err
@@ -400,7 +418,11 @@ func (tl *TableLocker) GetLock(args ...interface{}) (bool, error) {
 	}
 
 	log.Info("locking table replicator_lock")
-	_, err := tx.Exec("lock table replicator_lock in exclusive mode nowait")
+
+	start := time.Now()
+	_, err := tx.Exec(sqlLockTable)
+	logTimingStats("sqlLockTable", start, err)
+
 	if err == nil {
 		log.Info("Acquired lock")
 		return true, nil
