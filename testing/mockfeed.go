@@ -103,6 +103,21 @@ var FirstArchive = `
 </feed>
 `
 
+var EmptyFeed = `
+<feed
+    xmlns="http://www.w3.org/2005/Atom">
+    <title>Event store feed</title>
+    <id>recent</id>
+    <link rel="self" href="http://localhost:5000/notifications/recent"></link>
+    <link rel="related" href="http://localhost:5000/notifications/recent"></link>
+    <updated>2016-11-04T07:35:49-07:00</updated>
+</feed>
+`
+
+var EmptryFeedHandler = func(w http.ResponseWriter, r *http.Request) {
+	w.Write([]byte(EmptyFeed))
+}
+
 var RecentHandler = func(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(Recent))
 }
