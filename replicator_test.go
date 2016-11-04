@@ -311,14 +311,14 @@ func TestLockerGetLockErrors(t *testing.T) {
 	assert.NotNil(t, err)
 }
 
-func TestHttpReplicatorGetRecent(t *testing.T) {
+func TestHttpFeedReaderGetRecent(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(feedmock.RecentHandler))
 	defer ts.Close()
 
 	url, _ := url.Parse(ts.URL)
 
 	log.Infof("test server endpoint is %s", url.Host)
-	httpReplicator := NewHttpReplicator(url.Host, nil)
+	httpReplicator := NewHttpFeedReader(url.Host, nil)
 	assert.Equal(t, "http", httpReplicator.proto)
 
 	feed, err := httpReplicator.GetRecent()
@@ -328,7 +328,7 @@ func TestHttpReplicatorGetRecent(t *testing.T) {
 	}
 }
 
-func TestHttpReplicatorGetFeedWithTLS(t *testing.T) {
+func TestHttpFeedReaderGetFeedWithTLS(t *testing.T) {
 	ts := httptest.NewTLSServer(http.HandlerFunc(feedmock.GetFeedHandler))
 	defer ts.Close()
 
@@ -338,7 +338,7 @@ func TestHttpReplicatorGetFeedWithTLS(t *testing.T) {
 
 	tlsConfig := ts.TLS
 	tlsConfig.InsecureSkipVerify = true
-	httpReplicator := NewHttpReplicator(url.Host, ts.TLS)
+	httpReplicator := NewHttpFeedReader(url.Host, ts.TLS)
 	assert.Equal(t, "https", httpReplicator.proto)
 
 	feed, err := httpReplicator.GetFeed("9BC3EA7D-51E2-8C61-0E08-02368CD22054")
@@ -370,7 +370,7 @@ func TestReplEmptyFeed(t *testing.T) {
 	url, _ := url.Parse(ts.URL)
 
 	log.Infof("test server endpoint is %s", url.Host)
-	httpReplicator := NewHttpReplicator(url.Host, nil)
+	httpReplicator := NewHttpFeedReader(url.Host, nil)
 
 
 	replicator, err := testFactory.New(new(TableLocker), httpReplicator, db)

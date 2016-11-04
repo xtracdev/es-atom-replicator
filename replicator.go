@@ -15,6 +15,20 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"os"
+	"github.com/armon/go-metrics"
+)
+
+const (
+	replicatedCount = "replicated-events"
+	errorCount = "replication-errors"
+)
+
+const (
+	sqlLastObservedEvent = `select aggregate_id, version from events where id = (select max(id) from events)`
+	sqlInsertEvent = `insert into events (aggregate_id, version, typecode, event_time, payload) values(:1,:2,:3,:4,:5)`
+	sqlInsertPublish = `insert into publish (aggregate_id, version) values(:1,:2)`
+	sqlLockTable = `lock table replicator_lock in exclusive mode nowait`
 )
 
 //Locker defines the locking interface needed for processing feed events.
@@ -57,6 +71,7 @@ func (r *OraEventStoreReplicator) ProcessFeed() (bool, error) {
 	log.Info("ProcessFeed start transaction")
 	tx, err := r.db.Begin()
 	if err != nil {
+		incrementCounts(errorCount,1)
 		log.Warnf("Error starting transaction: %s", err.Error())
 		return false, err
 	}
@@ -65,6 +80,7 @@ func (r *OraEventStoreReplicator) ProcessFeed() (bool, error) {
 	log.Info("Get table lock")
 	locked, err := r.locker.GetLock(tx)
 	if err != nil {
+		incrementCounts(errorCount,1)
 		log.Warnf("Error obtaining lock: %s", err.Error())
 		tx.Rollback()
 		return false, err
@@ -80,8 +96,13 @@ func (r *OraEventStoreReplicator) ProcessFeed() (bool, error) {
 	log.Info("Select last event observed in replicated event feed")
 	var aggregateID string
 	var version int
-	err = tx.QueryRow("select aggregate_id, version from events where id = (select max(id) from events)").Scan(&aggregateID, &version)
+
+	start := time.Now()
+	err = tx.QueryRow(sqlLastObservedEvent).Scan(&aggregateID, &version)
+	logTimingStats("sqlLastObservedEvent", start, err)
+
 	if err != nil && err != sql.ErrNoRows {
+		incrementCounts(errorCount,1)
 		log.Warnf("Error querying for last event: %s", err.Error())
 		tx.Rollback()
 		return true, err
@@ -97,6 +118,7 @@ func (r *OraEventStoreReplicator) ProcessFeed() (bool, error) {
 	}
 
 	if findFeedErr != nil {
+		incrementCounts(errorCount,1)
 		log.Warnf("Unable to retrieve feed data: %s", findFeedErr.Error())
 		tx.Rollback()
 		return true, findFeedErr
@@ -107,6 +129,7 @@ func (r *OraEventStoreReplicator) ProcessFeed() (bool, error) {
 		log.Info("Feed with events to process has been found")
 		err = r.addFeedEvents(aggregateID, version, feed, tx)
 		if err != nil {
+			incrementCounts(errorCount,1)
 			log.Warnf("Unable to add feed events: %s", err.Error())
 			tx.Rollback()
 			return true, err
@@ -118,6 +141,7 @@ func (r *OraEventStoreReplicator) ProcessFeed() (bool, error) {
 	//Unlock
 	err = tx.Commit()
 	if err != nil {
+		incrementCounts(errorCount,1)
 		log.Warnf("Error commiting work: %s", err.Error())
 	}
 
@@ -203,20 +227,29 @@ func (r *OraEventStoreReplicator) addFeedEvents(aggregateID string, version int,
 		}
 
 		log.Infof("insert event for %v", entry.ID)
-		_, err = tx.Exec("insert into events (aggregate_id, version, typecode, event_time, payload) values(:1,:2,:3,:4,:5)",
+
+		start := time.Now()
+		_, err = tx.Exec(sqlInsertEvent,
 			idParts[2], idParts[3], entry.Content.Type, ts, payload)
+		logTimingStats("sqlInsertEvent",start,err)
+
 		if err != nil {
 			log.Warnf("Replication insert failed: %s", err.Error())
 			return err
 		}
 
-		_, err = tx.Exec("insert into publish (aggregate_id, version) values(:1,:2)",
+		start = time.Now()
+		_, err = tx.Exec(sqlInsertPublish,
 			idParts[2], idParts[3])
+		logTimingStats("sqlInsertPublish",start,err)
+
 		if err != nil {
 			log.Warnf("Replication publish insert failed: %s", err.Error())
 			return err
 		}
 	}
+
+	incrementCounts(replicatedCount,len(feed.Entry))
 
 	return nil
 }
@@ -385,17 +418,24 @@ func (tl *TableLocker) GetLock(args ...interface{}) (bool, error) {
 	}
 
 	log.Info("locking table replicator_lock")
-	_, err := tx.Exec("lock table replicator_lock in exclusive mode nowait")
+
+	start := time.Now()
+	_, err := tx.Exec(sqlLockTable)
+	logTimingStats("sqlLockTable", start, err)
+
 	if err == nil {
 		log.Info("Acquired lock")
+		logTimingStats("sqlLockTable", start, nil)
 		return true, nil
 	}
 
 	if strings.Contains(err.Error(), "ORA-00054") {
 		log.Info("Did not acquire lock")
+		logTimingStats("sqlLockTable", start, nil)
 		return false, nil
 	} else {
 		log.Warnf("Error locking table: %s", err.Error())
+		logTimingStats("sqlLockTable", start, err)
 		return false, err
 	}
 }
@@ -406,15 +446,15 @@ func (tl *TableLocker) ReleaseLock() error {
 	return nil //Release done in transaction commit/rollback
 }
 
-//HttpReplicator defines a type for an Http Feed reader
-type HttpReplicator struct {
+//HttpFeedReader defines a type for an Http Feed reader
+type HttpFeedReader struct {
 	endpoint string
 	client   *http.Client
 	proto    string
 }
 
-//NewHttpReplicator is a factory for instantiating HttpReplicators
-func NewHttpReplicator(endpoint string, tlsConfig *tls.Config) *HttpReplicator {
+//NewHttpFeedReader is a factory for instantiating HttpFeedReaders
+func NewHttpFeedReader(endpoint string, tlsConfig *tls.Config) *HttpFeedReader {
 	var client *http.Client
 	var proto string
 
@@ -429,7 +469,7 @@ func NewHttpReplicator(endpoint string, tlsConfig *tls.Config) *HttpReplicator {
 		proto = "https"
 	}
 
-	return &HttpReplicator{
+	return &HttpFeedReader{
 		endpoint: endpoint,
 		client:   client,
 		proto:    proto,
@@ -437,41 +477,101 @@ func NewHttpReplicator(endpoint string, tlsConfig *tls.Config) *HttpReplicator {
 }
 
 //GetRecent returns the recent notifications
-func (hr *HttpReplicator) GetRecent() (*atom.Feed, error) {
+func (hr *HttpFeedReader) GetRecent() (*atom.Feed, error) {
 	url := fmt.Sprintf("%s://%s/notifications/recent", hr.proto, hr.endpoint)
 	return hr.getResource(url)
 }
 
 //GetFeed returns the specific feed
-func (hr *HttpReplicator) GetFeed(feedid string) (*atom.Feed, error) {
+func (hr *HttpFeedReader) GetFeed(feedid string) (*atom.Feed, error) {
 	url := fmt.Sprintf("%s://%s/notifications/%s", hr.proto, hr.endpoint, feedid)
 	return hr.getResource(url)
 }
 
 //getResource does a git on the specified feed resource
-func (hr *HttpReplicator) getResource(url string) (*atom.Feed, error) {
+func (hr *HttpFeedReader) getResource(url string) (*atom.Feed, error) {
+	var start time.Time
+
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
 	}
 
+	start = time.Now()
 	resp, err := hr.client.Do(req)
+	logTimingStats("getResource client.Do",start,err)
+
 	if err != nil {
 		return nil, err
 	}
 
 	defer resp.Body.Close()
 
+	start = time.Now()
 	responseBytes, err := ioutil.ReadAll(resp.Body)
+	logTimingStats("getResource response ReadAll",start,err)
+
 	if err != nil {
 		return nil, err
 	}
 
 	var feed atom.Feed
+
+	start = time.Now()
 	err = xml.Unmarshal(responseBytes, &feed)
+	logTimingStats("getResource xml.Unmarshall",start,err)
+
 	if err != nil {
 		return nil, err
 	}
 
 	return &feed, nil
+}
+
+//Configure where telemery data goes. Currently this can be send via UDP to a listener, or can be buffered
+//internally and dumped via a signal.
+func ConfigureStatsD() {
+	statsdEndpoint := os.Getenv("STATSD_ENDPOINT")
+	log.Infof("STATSD_ENDPOINT: %s", statsdEndpoint)
+	
+	if statsdEndpoint != "" {
+
+		log.Info("Using vanilla statsd client to send telemetry to ", statsdEndpoint)
+		sink, err := metrics.NewStatsdSink(statsdEndpoint)
+		if err != nil {
+			log.Warn("Unable to configure statds sink", err.Error())
+			return
+		}
+		metrics.NewGlobal(metrics.DefaultConfig(statsdEndpoint), sink)
+	} else {
+		log.Info("Using in memory metrics accumulator - dump via USR1 signal")
+		inm := metrics.NewInmemSink(10*time.Second, 5*time.Minute)
+		metrics.DefaultInmemSignal(inm)
+		metrics.NewGlobal(metrics.DefaultConfig("xavi"), inm)
+	}
+}
+
+//Update counters and stats for timings, discriminating errors from non-errors
+func logTimingStats(svc string, start time.Time, err error) {
+	duration := time.Now().Sub(start)
+	go func(svc string, duration time.Duration, err error) {
+		ms := float32(duration.Nanoseconds()) / 1000.0 / 1000.0
+		if err != nil {
+			key := []string{"es-atom-replicator", fmt.Sprintf("%s-error", svc)}
+			metrics.AddSample(key, float32(ms))
+			metrics.IncrCounter(key, 1)
+		} else {
+			key := []string{"es-atom-replicator", svc}
+			metrics.AddSample(key, float32(ms))
+			metrics.IncrCounter(key, 1)
+		}
+	}(svc, duration, err)
+}
+
+//Counters
+func incrementCounts(counter string, increment int) {
+	go func(counter string, increment int) {
+		key := []string{"es-atom-replicator", counter}
+		metrics.IncrCounter(key, float32(increment))
+	}(counter, increment)
 }
