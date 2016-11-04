@@ -425,14 +425,17 @@ func (tl *TableLocker) GetLock(args ...interface{}) (bool, error) {
 
 	if err == nil {
 		log.Info("Acquired lock")
+		logTimingStats("sqlLockTable", start, nil)
 		return true, nil
 	}
 
 	if strings.Contains(err.Error(), "ORA-00054") {
 		log.Info("Did not acquire lock")
+		logTimingStats("sqlLockTable", start, nil)
 		return false, nil
 	} else {
 		log.Warnf("Error locking table: %s", err.Error())
+		logTimingStats("sqlLockTable", start, err)
 		return false, err
 	}
 }
@@ -487,25 +490,37 @@ func (hr *HttpFeedReader) GetFeed(feedid string) (*atom.Feed, error) {
 
 //getResource does a git on the specified feed resource
 func (hr *HttpFeedReader) getResource(url string) (*atom.Feed, error) {
+	var start time.Time
+
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
 	}
 
+	start = time.Now()
 	resp, err := hr.client.Do(req)
+	logTimingStats("getResource client.Do",start,err)
+
 	if err != nil {
 		return nil, err
 	}
 
 	defer resp.Body.Close()
 
+	start = time.Now()
 	responseBytes, err := ioutil.ReadAll(resp.Body)
+	logTimingStats("getResource response ReadAll",start,err)
+
 	if err != nil {
 		return nil, err
 	}
 
 	var feed atom.Feed
+
+	start = time.Now()
 	err = xml.Unmarshal(responseBytes, &feed)
+	logTimingStats("getResource xml.Unmarshall",start,err)
+
 	if err != nil {
 		return nil, err
 	}
@@ -518,7 +533,7 @@ func (hr *HttpFeedReader) getResource(url string) (*atom.Feed, error) {
 func ConfigureStatsD() {
 	statsdEndpoint := os.Getenv("STATSD_ENDPOINT")
 	log.Infof("STATSD_ENDPOINT: %s", statsdEndpoint)
-
+	
 	if statsdEndpoint != "" {
 
 		log.Info("Using vanilla statsd client to send telemetry to ", statsdEndpoint)
