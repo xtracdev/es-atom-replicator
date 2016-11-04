@@ -347,3 +347,36 @@ func TestHttpReplicatorGetFeedWithTLS(t *testing.T) {
 		assert.Equal(t, "9BC3EA7D-51E2-8C61-0E08-02368CD22054", feed.ID)
 	}
 }
+
+//TestReplEmptyFeed verifies that when there is nothing to replicate from scratch
+//that the table lock is released (via transaction commit)
+func TestReplEmptyFeed(t *testing.T) {
+	//Set up DB mock
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("an error '%s' was not expected when opening a stub database connection", err)
+	}
+	defer db.Close()
+
+	mock.ExpectBegin()
+	testExpectLock(mock, false, true)
+	testExpectQueryReturnNoRows(mock)
+	mock.ExpectCommit()
+
+	//Set up http feed reader
+	ts := httptest.NewServer(http.HandlerFunc(feedmock.EmptryFeedHandler))
+	defer ts.Close()
+
+	url, _ := url.Parse(ts.URL)
+
+	log.Infof("test server endpoint is %s", url.Host)
+	httpReplicator := NewHttpReplicator(url.Host, nil)
+
+
+	replicator, err := testFactory.New(new(TableLocker), httpReplicator, db)
+
+	replicator.ProcessFeed()
+
+	err = mock.ExpectationsWereMet()
+	assert.Nil(t, err)
+}
