@@ -7,6 +7,7 @@ import (
 	"errors"
 	log "github.com/Sirupsen/logrus"
 	"time"
+	"github.com/xtracdev/tlsconfig"
 )
 
 const (
@@ -27,13 +28,32 @@ func connectToDB()(*oraconn.OracleDB,error) {
 	return oraDB,nil
 }
 
-//TODO - TLS config
 func createFeedReader()(*replicator.HttpFeedReader, error) {
 	feedAddr := os.Getenv("ATOMFEED_ENDPOINT")
 	if feedAddr == "" {
 		return nil,errors.New("Missing ATOMFEED_ENDPOINT environment variable value")
 	}
-	return replicator.NewHttpFeedReader(feedAddr, nil),nil
+
+	privateKey := os.Getenv("PRIVATE_KEY")
+	certificate := os.Getenv("CERTIFICATE")
+	caCert := os.Getenv("CACERT")
+
+	if privateKey == "" || certificate == "" || caCert == "" {
+		log.Info("Using non-TLS configuration to read atom feed.")
+		log.Info("SPecify PRIVATE_KEY, CERTIFICATE, and CACERT envionment variables for TLS config")
+		return replicator.NewHttpFeedReader(feedAddr, nil),nil
+	} else {
+		config, err := tlsconfig.GetTLSConfiguration(privateKey, certificate, caCert)
+		if err != nil {
+			return nil,err
+		}
+
+		return replicator.NewHttpFeedReader(feedAddr, config),nil
+	}
+
+
+
+
 }
 
 func handleFatal(err error) {

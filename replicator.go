@@ -507,6 +507,14 @@ func (hr *HttpFeedReader) getResource(url string) (*atom.Feed, error) {
 
 	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusOK {
+		responseBytes, readErr := ioutil.ReadAll(resp.Body)
+		if readErr == nil {
+			log.Warnf("Error reading feed: %d %s", resp.StatusCode, string([]byte(responseBytes)))
+		}
+		return nil, errors.New(fmt.Sprintf("Error retrieving resource: %d", resp.StatusCode))
+	}
+
 	start = time.Now()
 	responseBytes, err := ioutil.ReadAll(resp.Body)
 	logTimingStats("getResource response ReadAll",start,err)

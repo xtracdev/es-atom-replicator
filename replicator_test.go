@@ -328,6 +328,22 @@ func TestHttpFeedReaderGetRecent(t *testing.T) {
 	}
 }
 
+func TestHttpFeedReaderGetError(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request){
+		http.Error(w, "Fam... no way", http.StatusInternalServerError)
+	}))
+	defer ts.Close()
+
+	url, _ := url.Parse(ts.URL)
+
+	log.Infof("test server endpoint is %s", url.Host)
+	httpReplicator := NewHttpFeedReader(url.Host, nil)
+	assert.Equal(t, "http", httpReplicator.proto)
+
+	_, err := httpReplicator.GetRecent()
+	assert.NotNil(t, err)
+}
+
 func TestHttpFeedReaderGetFeedWithTLS(t *testing.T) {
 	ts := httptest.NewTLSServer(http.HandlerFunc(feedmock.GetFeedHandler))
 	defer ts.Close()

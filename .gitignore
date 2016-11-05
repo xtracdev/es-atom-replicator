@@ -1,3 +1,5 @@
 coverage.out
 setenv
 cmd/setenv.sh
+cmd/*.crt
+cmd/*.key
