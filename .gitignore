@@ -3,3 +3,4 @@ setenv
 cmd/setenv.sh
 cmd/*.crt
 cmd/*.key
+localbuild
