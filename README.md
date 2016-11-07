@@ -1,5 +1,7 @@
 # Event Store Replicator
 
+[![CircleCI](https://circleci.com/gh/xtracdev/es-atom-replicator.svg?style=svg)](https://circleci.com/gh/xtracdev/es-atom-replicator)
+
 This project implements a replication process for the oraeventstore. It 
 works by reading a source store's atom feed, and writing the events
 replicated from a remote instance into the local instance.
