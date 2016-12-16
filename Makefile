@@ -14,5 +14,5 @@ containerbin:
 	gucumber
 	cd cmd
 	ls
-	GOOS=linux GOARCH=amd64 go build -o replicator
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -installsuffix cgo -o replicator
 	cp replicator /artifacts
