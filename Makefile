@@ -12,7 +12,5 @@ containerbin:
 	go get github.com/xtracdev/oraconn
 	go test
 	gucumber
-	cd cmd
-	ls
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -installsuffix cgo -o replicator
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -installsuffix cgo -o replicator ./cmd/
 	cp replicator /artifacts
