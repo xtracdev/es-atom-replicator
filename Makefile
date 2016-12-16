@@ -13,4 +13,4 @@ containerbin:
 	go test
 	gucumber
 	go build -o replicator
-	cp replicator $(CIRCLE_ARTIFACTS)
+	cp replicator /artifacts
