@@ -13,6 +13,6 @@ containerbin:
 	go test
 	gucumber
 	cd cmd
-	go build -o replicator
+	GOOS=linux GOARCH=amd64 go build -o replicator
 	tar cvzf replicator.tar.gz ./replicator
 	cp replicator.tar.gz /artifacts
