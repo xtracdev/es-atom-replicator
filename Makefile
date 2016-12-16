@@ -14,5 +14,5 @@ containerbin:
 	gucumber
 	cd cmd
 	go build -o replicator
-	tar cxzf replicator.tar.gz ./replicator
+	tar cvzf replicator.tar.gz ./replicator
 	cp replicator.tar.gz /artifacts
