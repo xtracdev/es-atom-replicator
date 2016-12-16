@@ -12,5 +12,6 @@ containerbin:
 	go get github.com/xtracdev/oraconn
 	go test
 	gucumber
+	cd cmd
 	go build -o replicator
 	cp replicator /artifacts
