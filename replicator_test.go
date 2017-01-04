@@ -18,15 +18,15 @@ var testFactory = &OraEventStoreReplicatorFactory{}
 
 func testExpectLock(mock sqlmock.Sqlmock, lockError bool, gotLock bool) {
 	if lockError {
-		mock.ExpectExec("lock table replicator_lock in exclusive mode nowait").WillReturnError(errors.New("BAM!"))
+		mock.ExpectExec("lock table t_aerl_replicator_lock in exclusive mode nowait").WillReturnError(errors.New("BAM!"))
 		return
 	}
 
 	if gotLock {
 		execOkResult := sqlmock.NewResult(1, 1)
-		mock.ExpectExec("lock table replicator_lock in exclusive mode nowait").WillReturnResult(execOkResult)
+		mock.ExpectExec("lock table t_aerl_replicator_lock in exclusive mode nowait").WillReturnResult(execOkResult)
 	} else {
-		mock.ExpectExec("lock table replicator_lock in exclusive mode nowait").WillReturnError(errors.New("ORA-00054: resource busy and acquire with NOWAIT specified or timeout expired"))
+		mock.ExpectExec("lock table t_aerl_replicator_lock in exclusive mode nowait").WillReturnError(errors.New("ORA-00054: resource busy and acquire with NOWAIT specified or timeout expired"))
 	}
 
 }
@@ -34,23 +34,23 @@ func testExpectLock(mock sqlmock.Sqlmock, lockError bool, gotLock bool) {
 //TODO - add insert argument expectations then make sure we get the events in the correct order
 func testExpectInsertIntoEvents(mock sqlmock.Sqlmock, aggID, version string) {
 	execOkResult := sqlmock.NewResult(1, 1)
-	mock.ExpectExec("insert into events").WithArgs(aggID, version, sqlmock.AnyArg(),
+	mock.ExpectExec("insert into t_aeev_events").WithArgs(aggID, version, sqlmock.AnyArg(),
 		sqlmock.AnyArg(), sqlmock.AnyArg()).WillReturnResult(execOkResult)
-	mock.ExpectExec("insert into publish").WillReturnResult(execOkResult)
+	mock.ExpectExec("insert into t_aepb_publish").WillReturnResult(execOkResult)
 }
 
 func testExpectQueryReturnNoRows(mock sqlmock.Sqlmock) {
 	rows := sqlmock.NewRows([]string{"aggregate_id", "version"})
-	mock.ExpectQuery("select aggregate_id, version from events where id").WillReturnRows(rows)
+	mock.ExpectQuery("select aggregate_id, version from t_aeev_events where id").WillReturnRows(rows)
 }
 
 func testExpectQueryReturnError(mock sqlmock.Sqlmock) {
-	mock.ExpectQuery("select aggregate_id, version from events where id").WillReturnError(errors.New("dang"))
+	mock.ExpectQuery("select aggregate_id, version from t_aeev_events where id").WillReturnError(errors.New("dang"))
 }
 
 func testExpectQueryReturnAggregateAndVersion(mock sqlmock.Sqlmock, aggID, version string) {
 	rows := sqlmock.NewRows([]string{"aggregate_id", "version"}).AddRow(aggID, version)
-	mock.ExpectQuery("select aggregate_id, version from events where id").WillReturnRows(rows)
+	mock.ExpectQuery("select aggregate_id, version from t_aeev_events where id").WillReturnRows(rows)
 }
 
 type testFeedReader struct {

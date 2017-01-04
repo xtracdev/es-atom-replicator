@@ -25,10 +25,10 @@ const (
 )
 
 const (
-	sqlLastObservedEvent = `select aggregate_id, version from events where id = (select max(id) from events)`
-	sqlInsertEvent = `insert into events (aggregate_id, version, typecode, event_time, payload) values(:1,:2,:3,:4,:5)`
-	sqlInsertPublish = `insert into publish (aggregate_id, version) values(:1,:2)`
-	sqlLockTable = `lock table replicator_lock in exclusive mode nowait`
+	sqlLastObservedEvent = `select aggregate_id, version from t_aeev_events where id = (select max(id) from t_aeev_events)`
+	sqlInsertEvent = `insert into t_aeev_events (aggregate_id, version, typecode, event_time, payload) values(:1,:2,:3,:4,:5)`
+	sqlInsertPublish = `insert into t_aepb_publish (aggregate_id, version) values(:1,:2)`
+	sqlLockTable = `lock table t_aerl_replicator_lock in exclusive mode nowait`
 )
 
 //Locker defines the locking interface needed for processing feed events.

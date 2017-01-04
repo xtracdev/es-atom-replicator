@@ -13,7 +13,7 @@ acquiring a mutex via a table lock.
 The table use for the lock is 
 
 <pre>
-create table replicator_lock (
+create table t_aerl_replicator_lock (
     ts TIMESTAMP
 );
 </pre>

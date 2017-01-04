@@ -35,10 +35,10 @@ func init() {
 	})
 
 	And(`^no events have been replicated$`, func() {
-		_, err := db1.Exec("delete from events")
+		_, err := db1.Exec("delete from t_aepb_publish")
 		assert.Nil(T, err)
 
-		_, err = db1.Exec("delete from publish")
+		_, err = db1.Exec("delete from t_aeev_events")
 		assert.Nil(T, err)
 	})
 

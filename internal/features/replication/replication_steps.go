@@ -32,10 +32,10 @@ func init() {
 	})
 
 	And(`^an empty replication db$`, func() {
-		_, err := db.Exec("delete from events")
+		_, err := db.Exec("delete from t_aepb_publish")
 		assert.Nil(T, err)
 
-		_, err = db.Exec("delete from publish")
+		_, err = db.Exec("delete from t_aeev_events")
 		assert.Nil(T, err)
 	})
 
@@ -65,7 +65,7 @@ func init() {
 func getEntries(db *sql.DB) ([]*atom.Entry, error) {
 	var entries []*atom.Entry
 
-	rows, err := db.Query("select event_time,aggregate_id,version,typecode,payload from events order by event_time desc")
+	rows, err := db.Query("select event_time,aggregate_id,version,typecode,payload from t_aeev_events order by event_time desc")
 	if err != nil {
 		return entries, err
 	}
