@@ -1,24 +1,21 @@
-package replication
+package healthCheck
 
 import (
 	"database/sql"
-	"encoding/base64"
-	"encoding/xml"
 	"fmt"
-	log "github.com/Sirupsen/logrus"
 	. "github.com/gucumber/gucumber"
 	"github.com/stretchr/testify/assert"
-	"github.com/xtracdev/es-atom-replicator"
-	feedmock "github.com/xtracdev/es-atom-replicator/testing"
-	"golang.org/x/tools/blog/atom"
-	"time"
 	"github.com/xtracdev/oraconn"
 	"github.com/xtracdev/es-atom-replicator/health"
 	"net/http"
 	"encoding/json"
+	log "github.com/Sirupsen/logrus"
+	"io/ioutil"
 )
 
 func init() {
+
+	log.SetLevel(log.DebugLevel)
 
 	var db *sql.DB
 	var port string = "9999"
@@ -47,8 +44,7 @@ func init() {
 	And(`^the response indicates the replicator is healthy$`, func() {
 		assert.Equal(T, http.StatusOK, resp.StatusCode)
 		assert.Equal(T, "application/json", resp.Header.Get("Content-Type"))
-		rawPayload := []byte{}
-		_, err := resp.Body.Read(rawPayload)
+		rawPayload, err := ioutil.ReadAll(resp.Body)
 		defer resp.Body.Close()
 		assert.Nil(T, err)
 		hr := new(health.HealthResponse)

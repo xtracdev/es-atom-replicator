@@ -3,7 +3,6 @@ package health
 import (
 	"encoding/json"
 	log "github.com/Sirupsen/logrus"
-	"github.com/xtracdev/orapub"
 	"net/http"
 	"database/sql"
 )
