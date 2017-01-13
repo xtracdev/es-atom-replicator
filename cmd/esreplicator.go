@@ -8,6 +8,7 @@ import (
 	log "github.com/Sirupsen/logrus"
 	"time"
 	"github.com/xtracdev/tlsconfig"
+	"github.com/xtracdev/es-atom-replicator/health"
 )
 
 const (
@@ -77,6 +78,8 @@ func main() {
 	handleFatal(createReplictorErr)
 
 	replicator.ConfigureStatsD()
+
+	go health.EnableHealthEndpoint(os.Getenv("ATOMREPLICATOR_HEALTH_PORT"), oraDB.DB)
 
 	for {
 		_,err := feedReplicator.ProcessFeed()
