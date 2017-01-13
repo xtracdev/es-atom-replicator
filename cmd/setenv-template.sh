@@ -8,3 +8,4 @@ export DB_HOST=xxx
 export DB_PORT=xxx
 export DB_SVC=xxx
 export ATOMFEED_ENDPOINT=host:port
+export ATOMREPLICATOR_HEALTH_PORT=port
