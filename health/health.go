@@ -1,16 +1,16 @@
 package health
 
 import (
+	"database/sql"
 	"encoding/json"
 	log "github.com/Sirupsen/logrus"
 	"net/http"
-	"database/sql"
 )
 
 const (
 	appName = "xtrac-managed-api-feed-replicator"
-	yesStr          = "Yes"
-	noStr           = "No"
+	yesStr  = "Yes"
+	noStr   = "No"
 )
 
 type HealthResponse struct {
