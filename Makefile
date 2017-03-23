@@ -10,6 +10,7 @@ containerbin:
 	export PKG_CONFIG_PATH=$GOPATH/src/github.com/xtracdev/es-atom-replicator/pkgconfig/
 	go get github.com/rjeczalik/pkgconfig/cmd/pkg-config
 	go get github.com/xtracdev/oraconn
+	go get github.com/aws/aws-sdk-go/...
 	go test
 	gucumber
 	GOOS=linux GOARCH=amd64 go build -a -installsuffix cgo -o replicator ./cmd/
