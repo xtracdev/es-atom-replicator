@@ -318,7 +318,7 @@ func TestHttpFeedReaderGetRecent(t *testing.T) {
 	url, _ := url.Parse(ts.URL)
 
 	log.Infof("test server endpoint is %s", url.Host)
-	httpReplicator := NewHttpFeedReader(url.Host, "", nil)
+	httpReplicator := NewHttpFeedReader(url.Host, "http", "", nil)
 	assert.Equal(t, "http", httpReplicator.proto)
 
 	feed, err := httpReplicator.GetRecent()
@@ -337,7 +337,7 @@ func TestHttpFeedReaderGetError(t *testing.T) {
 	url, _ := url.Parse(ts.URL)
 
 	log.Infof("test server endpoint is %s", url.Host)
-	httpReplicator := NewHttpFeedReader(url.Host, "", nil)
+	httpReplicator := NewHttpFeedReader(url.Host, "http","", nil)
 	assert.Equal(t, "http", httpReplicator.proto)
 
 	_, err := httpReplicator.GetRecent()
@@ -366,7 +366,7 @@ func TestReplEmptyFeed(t *testing.T) {
 	url, _ := url.Parse(ts.URL)
 
 	log.Infof("test server endpoint is %s", url.Host)
-	httpReplicator := NewHttpFeedReader(url.Host, "", nil)
+	httpReplicator := NewHttpFeedReader(url.Host, "http", "", nil)
 
 	replicator, err := testFactory.New(new(TableLocker), httpReplicator, db)
 

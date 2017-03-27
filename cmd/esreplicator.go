@@ -49,7 +49,13 @@ func createFeedReader() (*replicator.HttpFeedReader, error) {
 		kmsService = kms.New(sess)
 	}
 
-	return replicator.NewHttpFeedReader(feedAddr, keyAlias, kmsService), nil
+	proto := os.Getenv("FEED_PROTO")
+	if proto == "" {
+		log.Info("Defaulting feed proto to https")
+		proto = "https"
+	}
+
+	return replicator.NewHttpFeedReader(feedAddr, proto, keyAlias, kmsService), nil
 }
 
 func handleFatal(err error) {

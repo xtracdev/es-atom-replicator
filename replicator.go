@@ -19,6 +19,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"crypto/tls"
 )
 
 const (
@@ -459,12 +460,20 @@ type HttpFeedReader struct {
 }
 
 //NewHttpFeedReader is a factory for instantiating HttpFeedReaders
-func NewHttpFeedReader(endpoint, keyAlias string, kmsSvc *kms.KMS) *HttpFeedReader {
+func NewHttpFeedReader(endpoint, feedProto, keyAlias string, kmsSvc *kms.KMS) *HttpFeedReader {
+
+	client := http.DefaultClient
+	if feedProto == "https" {
+		tr := http.DefaultTransport
+		defTransAsTransPort := tr.(*http.Transport)
+		defTransAsTransPort.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+		client = &http.Client{Transport: tr}
+	}
 
 	return &HttpFeedReader{
 		endpoint: endpoint,
-		client:   http.DefaultClient,
-		proto:    "http",
+		client:   client,
+		proto:    feedProto,
 		keyAlias: keyAlias,
 		kmsSvc:   kmsSvc,
 	}
