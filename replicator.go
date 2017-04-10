@@ -1,35 +1,38 @@
 package replicator
 
 import (
-	"crypto/tls"
+	"crypto/aes"
+	"crypto/cipher"
 	"database/sql"
 	"encoding/base64"
 	"encoding/xml"
 	"errors"
 	"fmt"
 	log "github.com/Sirupsen/logrus"
+	"github.com/armon/go-metrics"
+	"github.com/aws/aws-sdk-go/service/kms"
 	"golang.org/x/tools/blog/atom"
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"os"
 	"sort"
 	"strings"
 	"time"
-	"os"
-	"github.com/armon/go-metrics"
 	"strconv"
+	"crypto/tls"
 )
 
 const (
 	replicatedCount = "replicated-events"
-	errorCount = "replication-errors"
+	errorCount      = "replication-errors"
 )
 
 const (
 	sqlLastObservedEvent = `select aggregate_id, version from t_aeev_events where id = (select max(id) from t_aeev_events)`
-	sqlInsertEvent = `insert into t_aeev_events (aggregate_id, version, typecode, event_time, payload) values(:1,:2,:3,:4,:5)`
-	sqlInsertPublish = `insert into t_aepb_publish (aggregate_id, version) values(:1,:2)`
-	sqlLockTable = `lock table t_aerl_replicator_lock in exclusive mode nowait`
+	sqlInsertEvent       = `insert into t_aeev_events (aggregate_id, version, typecode, event_time, payload) values(:1,:2,:3,:4,:5)`
+	sqlInsertPublish     = `insert into t_aepb_publish (aggregate_id, version) values(:1,:2)`
+	sqlLockTable         = `lock table t_aerl_replicator_lock in exclusive mode nowait`
 )
 
 //Locker defines the locking interface needed for processing feed events.
@@ -72,7 +75,7 @@ func (r *OraEventStoreReplicator) ProcessFeed() (bool, error) {
 	log.Info("ProcessFeed start transaction")
 	tx, err := r.db.Begin()
 	if err != nil {
-		incrementCounts(errorCount,1)
+		incrementCounts(errorCount, 1)
 		log.Warnf("Error starting transaction: %s", err.Error())
 		return false, err
 	}
@@ -81,7 +84,7 @@ func (r *OraEventStoreReplicator) ProcessFeed() (bool, error) {
 	log.Info("Get table lock")
 	locked, err := r.locker.GetLock(tx)
 	if err != nil {
-		incrementCounts(errorCount,1)
+		incrementCounts(errorCount, 1)
 		log.Warnf("Error obtaining lock: %s", err.Error())
 		tx.Rollback()
 		return false, err
@@ -103,7 +106,7 @@ func (r *OraEventStoreReplicator) ProcessFeed() (bool, error) {
 	logTimingStats("sqlLastObservedEvent", start, err)
 
 	if err != nil && err != sql.ErrNoRows {
-		incrementCounts(errorCount,1)
+		incrementCounts(errorCount, 1)
 		log.Warnf("Error querying for last event: %s", err.Error())
 		tx.Rollback()
 		return true, err
@@ -119,7 +122,7 @@ func (r *OraEventStoreReplicator) ProcessFeed() (bool, error) {
 	}
 
 	if findFeedErr != nil {
-		incrementCounts(errorCount,1)
+		incrementCounts(errorCount, 1)
 		log.Warnf("Unable to retrieve feed data: %s", findFeedErr.Error())
 		tx.Rollback()
 		return true, findFeedErr
@@ -130,7 +133,7 @@ func (r *OraEventStoreReplicator) ProcessFeed() (bool, error) {
 		log.Info("Feed with events to process has been found")
 		err = r.addFeedEvents(aggregateID, version, feed, tx)
 		if err != nil {
-			incrementCounts(errorCount,1)
+			incrementCounts(errorCount, 1)
 			log.Warnf("Unable to add feed events: %s", err.Error())
 			tx.Rollback()
 			return true, err
@@ -142,7 +145,7 @@ func (r *OraEventStoreReplicator) ProcessFeed() (bool, error) {
 	//Unlock
 	err = tx.Commit()
 	if err != nil {
-		incrementCounts(errorCount,1)
+		incrementCounts(errorCount, 1)
 		log.Warnf("Error commiting work: %s", err.Error())
 	}
 
@@ -240,7 +243,7 @@ func (r *OraEventStoreReplicator) addFeedEvents(aggregateID string, version int,
 		start := time.Now()
 		_, err = tx.Exec(sqlInsertEvent,
 			idParts[2], idParts[3], entry.Content.Type, ts, payload)
-		logTimingStats("sqlInsertEvent",start,err)
+		logTimingStats("sqlInsertEvent", start, err)
 
 		if err != nil {
 			log.Warnf("Replication insert failed: %s", err.Error())
@@ -250,7 +253,7 @@ func (r *OraEventStoreReplicator) addFeedEvents(aggregateID string, version int,
 		start = time.Now()
 		_, err = tx.Exec(sqlInsertPublish,
 			idParts[2], idParts[3])
-		logTimingStats("sqlInsertPublish",start,err)
+		logTimingStats("sqlInsertPublish", start, err)
 
 		if err != nil {
 			log.Warnf("Replication publish insert failed: %s", err.Error())
@@ -258,7 +261,7 @@ func (r *OraEventStoreReplicator) addFeedEvents(aggregateID string, version int,
 		}
 	}
 
-	incrementCounts(replicatedCount,len(feed.Entry))
+	incrementCounts(replicatedCount, len(feed.Entry))
 
 	return nil
 }
@@ -375,6 +378,7 @@ func (r *OraEventStoreReplicator) getFirstFeed() (*atom.Feed, error) {
 
 	if feed == nil {
 		//Nothing in the feed if there's no recent available...
+		log.Info("Nothing in the feed")
 		return nil, nil
 	}
 
@@ -460,28 +464,27 @@ type HttpFeedReader struct {
 	endpoint string
 	client   *http.Client
 	proto    string
+	keyAlias string
+	kmsSvc   *kms.KMS
 }
 
 //NewHttpFeedReader is a factory for instantiating HttpFeedReaders
-func NewHttpFeedReader(endpoint string, tlsConfig *tls.Config) *HttpFeedReader {
-	var client *http.Client
-	var proto string
+func NewHttpFeedReader(endpoint, feedProto, keyAlias string, kmsSvc *kms.KMS) *HttpFeedReader {
 
-	if tlsConfig == nil {
-		client = http.DefaultClient
-		proto = "http"
-	} else {
-		transport := &http.Transport{
-			TLSClientConfig: tlsConfig,
-		}
-		client = &http.Client{Transport: transport}
-		proto = "https"
+	client := http.DefaultClient
+	if feedProto == "https" {
+		tr := http.DefaultTransport
+		defTransAsTransPort := tr.(*http.Transport)
+		defTransAsTransPort.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+		client = &http.Client{Transport: tr}
 	}
 
 	return &HttpFeedReader{
 		endpoint: endpoint,
 		client:   client,
-		proto:    proto,
+		proto:    feedProto,
+		keyAlias: keyAlias,
+		kmsSvc:   kmsSvc,
 	}
 }
 
@@ -497,6 +500,74 @@ func (hr *HttpFeedReader) GetFeed(feedid string) (*atom.Feed, error) {
 	return hr.getResource(url)
 }
 
+//IsFeedEncrypted indicates if we use a key alias for decrypting the feed
+func (hr *HttpFeedReader) IsFeedEncrypted() bool {
+	return hr.keyAlias != ""
+}
+
+//Decrypt from cryptopasta commit bc3a108a5776376aa811eea34b93383837994340
+//used via the CC0 license. See https://github.com/gtank/cryptopasta
+func (hr *HttpFeedReader) decrypt(ciphertext []byte, key *[32]byte) (plaintext []byte, err error) {
+	block, err := aes.NewCipher(key[:])
+	if err != nil {
+		return nil, err
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(ciphertext) < gcm.NonceSize() {
+		return nil, errors.New("malformed ciphertext")
+	}
+
+	return gcm.Open(nil,
+		ciphertext[:gcm.NonceSize()],
+		ciphertext[gcm.NonceSize():],
+		nil,
+	)
+}
+
+//DecryptFeed uses the AWS KMS to decrypt the feed text.
+func (hr *HttpFeedReader) DecryptFeed(feedBytes []byte) ([]byte, error) {
+	//Message is encrypted encryption key + :: + encrypted message
+	parts := strings.Split(string(feedBytes), "::")
+	if len(parts) != 2 {
+		err := errors.New(fmt.Sprintf("Expected two parts, got %d", len(parts)))
+		return nil, err
+	}
+
+	//Decode the key and the text
+	keyBytes, err := base64.StdEncoding.DecodeString(parts[0])
+	if err != nil {
+		return nil, err
+	}
+
+	//Get the encrypted bytes
+	msgBytes, err := base64.StdEncoding.DecodeString(parts[1])
+	if err != nil {
+		return nil, err
+	}
+
+	//Decrypt the encryption key
+	di := &kms.DecryptInput{
+		CiphertextBlob: keyBytes,
+	}
+
+	decryptedKey, err := hr.kmsSvc.Decrypt(di)
+	if err != nil {
+		return nil, err
+	}
+
+	//Use the decrypted key to decrypt the message text
+	decryptKey := [32]byte{}
+
+	copy(decryptKey[:], decryptedKey.Plaintext[0:32])
+
+	return hr.decrypt(msgBytes, &decryptKey)
+}
+
 //getResource does a git on the specified feed resource
 func (hr *HttpFeedReader) getResource(url string) (*atom.Feed, error) {
 	var start time.Time
@@ -508,7 +579,7 @@ func (hr *HttpFeedReader) getResource(url string) (*atom.Feed, error) {
 
 	start = time.Now()
 	resp, err := hr.client.Do(req)
-	logTimingStats("getResource client.Do",start,err)
+	logTimingStats("getResource client.Do", start, err)
 
 	if err != nil {
 		return nil, err
@@ -526,17 +597,25 @@ func (hr *HttpFeedReader) getResource(url string) (*atom.Feed, error) {
 
 	start = time.Now()
 	responseBytes, err := ioutil.ReadAll(resp.Body)
-	logTimingStats("getResource response ReadAll",start,err)
+	logTimingStats("getResource response ReadAll", start, err)
 
 	if err != nil {
 		return nil, err
+	}
+
+	//Are we using a key to decrypt the feed?
+	if hr.IsFeedEncrypted() {
+		responseBytes, err = hr.DecryptFeed(responseBytes)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	var feed atom.Feed
 
 	start = time.Now()
 	err = xml.Unmarshal(responseBytes, &feed)
-	logTimingStats("getResource xml.Unmarshall",start,err)
+	logTimingStats("getResource xml.Unmarshall", start, err)
 
 	if err != nil {
 		return nil, err
@@ -550,7 +629,7 @@ func (hr *HttpFeedReader) getResource(url string) (*atom.Feed, error) {
 func ConfigureStatsD() {
 	statsdEndpoint := os.Getenv("STATSD_ENDPOINT")
 	log.Infof("STATSD_ENDPOINT: %s", statsdEndpoint)
-	
+
 	if statsdEndpoint != "" {
 
 		log.Info("Using vanilla statsd client to send telemetry to ", statsdEndpoint)

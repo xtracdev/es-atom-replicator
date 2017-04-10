@@ -1,24 +1,25 @@
 package main
 
 import (
-	"github.com/xtracdev/oraconn"
-	"github.com/xtracdev/es-atom-replicator"
-	"os"
 	"errors"
 	log "github.com/Sirupsen/logrus"
-	"time"
-	"github.com/xtracdev/tlsconfig"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/kms"
+	"github.com/xtracdev/es-atom-replicator"
 	"github.com/xtracdev/es-atom-replicator/health"
+	"github.com/xtracdev/oraconn"
+	"os"
+	"time"
 )
 
 const (
 	maxDBReconnectAttempts = 100
 )
 
-func connectToDB()(*oraconn.OracleDB,error) {
+func connectToDB() (*oraconn.OracleDB, error) {
 	dbEnvConfig, err := oraconn.NewEnvConfig()
 	if err != nil {
-		return nil,err
+		return nil, err
 	}
 
 	oraDB, err := oraconn.OpenAndConnect(dbEnvConfig.ConnectString(), maxDBReconnectAttempts)
@@ -26,35 +27,35 @@ func connectToDB()(*oraconn.OracleDB,error) {
 		return nil, err
 	}
 
-	return oraDB,nil
+	return oraDB, nil
 }
 
-func createFeedReader()(*replicator.HttpFeedReader, error) {
+func createFeedReader() (*replicator.HttpFeedReader, error) {
 	feedAddr := os.Getenv("ATOMFEED_ENDPOINT")
 	if feedAddr == "" {
-		return nil,errors.New("Missing ATOMFEED_ENDPOINT environment variable value")
+		return nil, errors.New("Missing ATOMFEED_ENDPOINT environment variable value")
 	}
 
-	privateKey := os.Getenv("PRIVATE_KEY")
-	certificate := os.Getenv("CERTIFICATE")
-	caCert := os.Getenv("CACERT")
+	var kmsService *kms.KMS
+	keyAlias := os.Getenv("KEY_ALIAS")
+	if keyAlias != "" {
+		log.Info("Configuration indicates use of KMS with alias ", keyAlias)
 
-	if privateKey == "" || certificate == "" || caCert == "" {
-		log.Info("Using non-TLS configuration to read atom feed.")
-		log.Info("SPecify PRIVATE_KEY, CERTIFICATE, and CACERT envionment variables for TLS config")
-		return replicator.NewHttpFeedReader(feedAddr, nil),nil
-	} else {
-		config, err := tlsconfig.GetTLSConfiguration(privateKey, certificate, caCert)
+		sess, err := session.NewSession()
 		if err != nil {
-			return nil,err
+			log.Errorf("Unable to establish AWS session: %s. Exiting.", err.Error())
+			os.Exit(1)
 		}
-
-		return replicator.NewHttpFeedReader(feedAddr, config),nil
+		kmsService = kms.New(sess)
 	}
 
+	proto := os.Getenv("FEED_PROTO")
+	if proto == "" {
+		log.Info("Defaulting feed proto to https")
+		proto = "https"
+	}
 
-
-
+	return replicator.NewHttpFeedReader(feedAddr, proto, keyAlias, kmsService), nil
 }
 
 func handleFatal(err error) {
@@ -74,7 +75,7 @@ func main() {
 
 	factory := replicator.OraEventStoreReplicatorFactory{}
 
-	feedReplicator,createReplictorErr = factory.New(new(replicator.TableLocker), feedReader, oraDB.DB)
+	feedReplicator, createReplictorErr = factory.New(new(replicator.TableLocker), feedReader, oraDB.DB)
 	handleFatal(createReplictorErr)
 
 	replicator.ConfigureStatsD()
@@ -82,7 +83,7 @@ func main() {
 	go health.EnableHealthEndpoint(os.Getenv("ATOMREPLICATOR_HEALTH_PORT"), oraDB.DB)
 
 	for {
-		_,err := feedReplicator.ProcessFeed()
+		_, err := feedReplicator.ProcessFeed()
 		if err != nil {
 			if oraconn.IsConnectionError(err) {
 				oraDB.Reconnect(maxDBReconnectAttempts)

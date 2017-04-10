@@ -318,7 +318,7 @@ func TestHttpFeedReaderGetRecent(t *testing.T) {
 	url, _ := url.Parse(ts.URL)
 
 	log.Infof("test server endpoint is %s", url.Host)
-	httpReplicator := NewHttpFeedReader(url.Host, nil)
+	httpReplicator := NewHttpFeedReader(url.Host, "http", "", nil)
 	assert.Equal(t, "http", httpReplicator.proto)
 
 	feed, err := httpReplicator.GetRecent()
@@ -329,7 +329,7 @@ func TestHttpFeedReaderGetRecent(t *testing.T) {
 }
 
 func TestHttpFeedReaderGetError(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request){
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Fam... no way", http.StatusInternalServerError)
 	}))
 	defer ts.Close()
@@ -337,31 +337,11 @@ func TestHttpFeedReaderGetError(t *testing.T) {
 	url, _ := url.Parse(ts.URL)
 
 	log.Infof("test server endpoint is %s", url.Host)
-	httpReplicator := NewHttpFeedReader(url.Host, nil)
+	httpReplicator := NewHttpFeedReader(url.Host, "http","", nil)
 	assert.Equal(t, "http", httpReplicator.proto)
 
 	_, err := httpReplicator.GetRecent()
 	assert.NotNil(t, err)
-}
-
-func TestHttpFeedReaderGetFeedWithTLS(t *testing.T) {
-	ts := httptest.NewTLSServer(http.HandlerFunc(feedmock.GetFeedHandler))
-	defer ts.Close()
-
-	log.Infof("TLS server on %s", ts.URL)
-
-	url, _ := url.Parse(ts.URL)
-
-	tlsConfig := ts.TLS
-	tlsConfig.InsecureSkipVerify = true
-	httpReplicator := NewHttpFeedReader(url.Host, ts.TLS)
-	assert.Equal(t, "https", httpReplicator.proto)
-
-	feed, err := httpReplicator.GetFeed("9BC3EA7D-51E2-8C61-0E08-02368CD22054")
-	assert.Nil(t, err)
-	if assert.NotNil(t, feed) {
-		assert.Equal(t, "9BC3EA7D-51E2-8C61-0E08-02368CD22054", feed.ID)
-	}
 }
 
 //TestReplEmptyFeed verifies that when there is nothing to replicate from scratch
@@ -386,8 +366,7 @@ func TestReplEmptyFeed(t *testing.T) {
 	url, _ := url.Parse(ts.URL)
 
 	log.Infof("test server endpoint is %s", url.Host)
-	httpReplicator := NewHttpFeedReader(url.Host, nil)
-
+	httpReplicator := NewHttpFeedReader(url.Host, "http", "", nil)
 
 	replicator, err := testFactory.New(new(TableLocker), httpReplicator, db)
 

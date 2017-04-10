@@ -2,15 +2,15 @@ package healthCheck
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	log "github.com/Sirupsen/logrus"
 	. "github.com/gucumber/gucumber"
 	"github.com/stretchr/testify/assert"
-	"github.com/xtracdev/oraconn"
 	"github.com/xtracdev/es-atom-replicator/health"
-	"net/http"
-	"encoding/json"
-	log "github.com/Sirupsen/logrus"
+	"github.com/xtracdev/oraconn"
 	"io/ioutil"
+	"net/http"
 )
 
 func init() {

@@ -24,3 +24,8 @@ To Build:
 docker run --rm -v $PWD:/go/src/github.com/xtracdev/es-atom-replicator -e DB_USER=<db user> -e DB_PASSWORD=<db password> -e DB_HOST=<db host> -e DB_PORT=<db port> -e DB_SVC=<db service> -w /go/src/github.com/xtracdev/es-atom-replicator xtracdev/goora bash -c "make -f Makefile"
 </pre>
 
+
+For integration testing, you need to install the managed API schema
+which includes the above replicator lock (tables to be added to this
+project at some point).
+

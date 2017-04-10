@@ -26,7 +26,7 @@ func initializeEnvironment() (replicator.Replicator, *sql.DB, error) {
 	url, _ := url.Parse(ts.URL)
 
 	log.Infof("test server endpoint is %s", url.Host)
-	httpReplicator := replicator.NewHttpFeedReader(url.Host, nil)
+	httpReplicator := replicator.NewHttpFeedReader(url.Host, "http", "", nil)
 
 	locker := new(replicator.TableLocker)
 
