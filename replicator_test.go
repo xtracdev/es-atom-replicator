@@ -242,6 +242,7 @@ func TestReplWhenLastInPageOneCurrent(t *testing.T) {
 	testExpectQueryReturnAggregateAndVersion(mock, "e44afbe7-e24f-4bdf-4fa8-9cfc46e4c496", "1")
 	testExpectInsertIntoEvents(mock, "3418b971-0ea8-483d-4520-9bfbc6a1d356", "1")
 	testExpectInsertIntoEvents(mock, "f3234d82-0cff-4221-64de-315c8ab6dbd6", "1")
+	testExpectInsertIntoEvents(mock, "f3234d82-0cff-4221-64de-315c8ab6dbd6", "2")
 	testExpectInsertIntoEvents(mock, "9f02eae0-bf8c-46c1-7afb-9af83616b0ae", "1")
 	mock.ExpectCommit()
 
@@ -265,6 +266,7 @@ func TestReplWhenLastInMidFeed(t *testing.T) {
 	mock.ExpectBegin()
 	testExpectLock(mock, false, true)
 	testExpectQueryReturnAggregateAndVersion(mock, "f3234d82-0cff-4221-64de-315c8ab6dbd6", "1")
+	testExpectInsertIntoEvents(mock, "f3234d82-0cff-4221-64de-315c8ab6dbd6", "2")
 	testExpectInsertIntoEvents(mock, "9f02eae0-bf8c-46c1-7afb-9af83616b0ae", "1")
 	mock.ExpectCommit()
 
@@ -337,7 +339,7 @@ func TestHttpFeedReaderGetError(t *testing.T) {
 	url, _ := url.Parse(ts.URL)
 
 	log.Infof("test server endpoint is %s", url.Host)
-	httpReplicator := NewHttpFeedReader(url.Host, "http","", nil)
+	httpReplicator := NewHttpFeedReader(url.Host, "http", "", nil)
 	assert.Equal(t, "http", httpReplicator.proto)
 
 	_, err := httpReplicator.GetRecent()

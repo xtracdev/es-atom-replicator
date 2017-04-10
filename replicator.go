@@ -3,6 +3,7 @@ package replicator
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/tls"
 	"database/sql"
 	"encoding/base64"
 	"encoding/xml"
@@ -17,10 +18,9 @@ import (
 	"net/url"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
-	"strconv"
-	"crypto/tls"
 )
 
 const (
