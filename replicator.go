@@ -17,6 +17,7 @@ import (
 	"time"
 	"os"
 	"github.com/armon/go-metrics"
+	"strconv"
 )
 
 const (
@@ -211,18 +212,26 @@ func (r *OraEventStoreReplicator) addFeedEvents(aggregateID string, version int,
 		entry := feed.Entry[i]
 		idParts := strings.SplitN(entry.ID, ":", 4)
 		payload, err := base64.StdEncoding.DecodeString(entry.Content.Body)
-		ts, err := time.Parse(time.RFC3339Nano, string(entry.Published))
-		if err != nil {
-			log.Errorf("Unable to parse timestamp for entry %-v", entry, "Skip processing of event")
-			continue
-		}
 		if err != nil {
 			log.Errorf("Unable to decode payload for entry %-v", entry, "Skip processing of event")
 			continue
 		}
 
-		if idParts[2] == aggregateID {
+		ts, err := time.Parse(time.RFC3339Nano, string(entry.Published))
+		if err != nil {
+			log.Errorf("Unable to parse timestamp for entry %-v", entry, "Skip processing of event")
+			continue
+		}
+
+		ver, err := strconv.Atoi(idParts[3])
+		if err != nil {
+			log.Errorf("Unable to convert version integer for entry %-v", entry, "Skip processing of event")
+			continue
+		}
+
+		if idParts[2] == aggregateID && ver == version {
 			//Already have this aggregate
+			log.Debugf("Event with aggregrateId %s and version %s not being replicated because it's already replicated.", aggregateID, ver)
 			continue
 		}
 
