@@ -58,7 +58,8 @@ func EnableHealthEndpoint(healthPort string, db *sql.DB) {
 func getReplicatorHealth(db *sql.DB) AppStatus {
 	availableStr := yesStr
 
-	if dbError := db.Ping(); dbError != nil {
+	var result string
+	if dbError := db.QueryRow("select DUMMY from DUAL").Scan(&result); dbError != nil {
 		log.Warn("Managed API Feed Replicator is not healthy: ", dbError)
 		availableStr = noStr
 	}
