@@ -2,3 +2,4 @@ coverage.out
 setenv
 cmd/setenv.sh
 localbuild
+esatomreplicator
