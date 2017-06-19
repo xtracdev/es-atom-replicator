@@ -1,0 +1,3 @@
+containerbin:
+	export PKG_CONFIG_PATH=$(GOPATH)/src/github.com/xtraclabs/cqrs-sample-pub/pkgconfig/
+	go build -o esatomreplicator
