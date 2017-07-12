@@ -3,15 +3,16 @@ package replicator
 import (
 	"encoding/xml"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"testing"
+
 	log "github.com/Sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	feedmock "github.com/xtracdev/es-atom-replicator/testing"
 	"golang.org/x/tools/blog/atom"
 	"gopkg.in/DATA-DOG/go-sqlmock.v1"
-	"net/http"
-	"net/http/httptest"
-	"net/url"
-	"testing"
 )
 
 var testFactory = &OraEventStoreReplicatorFactory{}
@@ -376,4 +377,12 @@ func TestReplEmptyFeed(t *testing.T) {
 
 	err = mock.ExpectationsWereMet()
 	assert.Nil(t, err)
+}
+
+func TestUniqueConstraintErrorTest(t *testing.T) {
+	errText := "Not an unique constraint error"
+	assert.False(t, isUniqueConstraintViolation(errText))
+
+	errText = "Replication insert failed: ORA-00001: unique constraint (APIFPDM1AXWFDBO.AEEVPK_AGGREGATE_ID$VERSION) violated"
+	assert.True(t, isUniqueConstraintViolation(errText))
 }

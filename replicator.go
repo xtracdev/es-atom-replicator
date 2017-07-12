@@ -9,10 +9,6 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
-	log "github.com/Sirupsen/logrus"
-	"github.com/armon/go-metrics"
-	"github.com/aws/aws-sdk-go/service/kms"
-	"golang.org/x/tools/blog/atom"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -21,6 +17,11 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	log "github.com/Sirupsen/logrus"
+	"github.com/armon/go-metrics"
+	"github.com/aws/aws-sdk-go/service/kms"
+	"golang.org/x/tools/blog/atom"
 )
 
 const (
@@ -187,6 +188,10 @@ func (t ByTimestamp) Less(i, j int) bool {
 	return tsJ.After(tsI)
 }
 
+func isUniqueConstraintViolation(errText string) bool {
+	return strings.Contains(errText, "ORA-00001")
+}
+
 //addFeedEvents adds events to the replicated feed store based on the offset into the event feed of the
 //last observed event. The scope of the events added is a single page, multiple calls of process events
 //are needed to get a feed fully synced up
@@ -247,6 +252,11 @@ func (r *OraEventStoreReplicator) addFeedEvents(aggregateID string, version int,
 
 		if err != nil {
 			log.Warnf("Replication insert failed: %s", err.Error())
+			if isUniqueConstraintViolation(err.Error()) {
+				log.Warnf("Unique constraint violation - Skip processing of event")
+				continue
+			}
+
 			return err
 		}
 
@@ -257,6 +267,11 @@ func (r *OraEventStoreReplicator) addFeedEvents(aggregateID string, version int,
 
 		if err != nil {
 			log.Warnf("Replication publish insert failed: %s", err.Error())
+			if isUniqueConstraintViolation(err.Error()) {
+				log.Warnf("Unique constraint violation - Skip duplicate publishing of event")
+				continue
+			}
+
 			return err
 		}
 	}
