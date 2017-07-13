@@ -162,9 +162,9 @@ var RetrieveEventHandler = func(w http.ResponseWriter, r *http.Request) {
 	case "non-existant":
 		statusCode = http.StatusNotFound
 	case "error-time":
-		statusCode = http.StatusOK
-	default:
 		statusCode = http.StatusInternalServerError
+	default:
+		statusCode = http.StatusOK
 	}
 
 	w.WriteHeader(statusCode)

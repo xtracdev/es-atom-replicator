@@ -13,6 +13,7 @@ import (
 	feedmock "github.com/xtracdev/es-atom-replicator/testing"
 	"golang.org/x/tools/blog/atom"
 	"gopkg.in/DATA-DOG/go-sqlmock.v1"
+	"fmt"
 )
 
 var testFactory = &OraEventStoreReplicatorFactory{}
@@ -388,13 +389,47 @@ func TestUniqueConstraintErrorTest(t *testing.T) {
 }
 
 func TestEventPresentWhenExists(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(feedmock.RetrieveEventHandler))
+	defer ts.Close()
 
+	url, _ := url.Parse(ts.URL)
+	log.Infof("test server endpoint is %s", url.Host)
+	httpReplicator := NewHttpFeedReader(url.Host, "http", "", nil)
+
+	endpoint := fmt.Sprintf("http://%s/events", url.Host)
+
+	exists, err := httpReplicator.isPresentInSource(endpoint, "i-know-this", 7)
+	if assert.Nil(t,err) {
+		assert.True(t, exists, "Expected aggregate to be flagged as non0existant")
+	}
 }
 
 func TestEventPresentWhenNonExistant(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(feedmock.RetrieveEventHandler))
+	defer ts.Close()
 
+	url, _ := url.Parse(ts.URL)
+	log.Infof("test server endpoint is %s", url.Host)
+	httpReplicator := NewHttpFeedReader(url.Host, "http", "", nil)
+
+	endpoint := fmt.Sprintf("http://%s/events", url.Host)
+
+	exists, err := httpReplicator.isPresentInSource(endpoint, "non-existant", 7)
+	if assert.Nil(t,err) {
+		assert.False(t, exists, "Expected aggregate to be flagged as non0existant")
+	}
 }
 
 func TestEventPresentWhenServerReturnsError(t *testing.T) {
-	
+	ts := httptest.NewServer(http.HandlerFunc(feedmock.RetrieveEventHandler))
+	defer ts.Close()
+
+	url, _ := url.Parse(ts.URL)
+	log.Infof("test server endpoint is %s", url.Host)
+	httpReplicator := NewHttpFeedReader(url.Host, "http", "", nil)
+
+	endpoint := fmt.Sprintf("http://%s/events", url.Host)
+
+	_, err := httpReplicator.isPresentInSource(endpoint, "error-time", 7)
+	assert.NotNil(t,err)
 }
