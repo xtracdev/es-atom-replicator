@@ -152,3 +152,20 @@ var GetFeedHandler = func(w http.ResponseWriter, r *http.Request) {
 
 	w.Write([]byte(feedData))
 }
+
+var RetrieveEventHandler = func(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(r.URL.Path, "/")
+	aggregateId := parts[len(parts) - 2]
+
+	var statusCode int
+	switch aggregateId {
+	case "non-existant":
+		statusCode = http.StatusNotFound
+	case "error-time":
+		statusCode = http.StatusOK
+	default:
+		statusCode = http.StatusInternalServerError
+	}
+
+	w.WriteHeader(statusCode)
+}

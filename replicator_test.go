@@ -386,3 +386,15 @@ func TestUniqueConstraintErrorTest(t *testing.T) {
 	errText = "Replication insert failed: ORA-00001: unique constraint (APIFPDM1AXWFDBO.AEEVPK_AGGREGATE_ID$VERSION) violated"
 	assert.True(t, isUniqueConstraintViolation(errText))
 }
+
+func TestEventPresentWhenExists(t *testing.T) {
+
+}
+
+func TestEventPresentWhenNonExistant(t *testing.T) {
+
+}
+
+func TestEventPresentWhenServerReturnsError(t *testing.T) {
+	
+}

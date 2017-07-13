@@ -583,6 +583,37 @@ func (hr *HttpFeedReader) DecryptFeed(feedBytes []byte) ([]byte, error) {
 	return hr.decrypt(msgBytes, &decryptKey)
 }
 
+
+func (hr *HttpFeedReader) isPresentInSource(url, aggregateID string, version int) (bool,error) {
+	var start time.Time
+
+	resource := fmt.Sprintf("%s/%s/%d", url,aggregateID, version)
+	req, err := http.NewRequest("GET", resource, nil)
+	if err != nil {
+		return false, err
+	}
+
+	start = time.Now()
+	resp, err := hr.client.Do(req)
+	logTimingStats("isPresentInSource client.Do", start, err)
+
+	if err != nil {
+		return false, err
+	}
+
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return true,nil
+	case http.StatusNotFound:
+		return false, nil
+	default:
+		return false, errors.New(fmt.Sprintf("Unexpected status code verifying event in source: %d", resp.StatusCode))
+	}
+
+}
+
 //getResource does a git on the specified feed resource
 func (hr *HttpFeedReader) getResource(url string) (*atom.Feed, error) {
 	var start time.Time
