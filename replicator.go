@@ -68,6 +68,19 @@ type OraEventStoreReplicator struct {
 	feedReader FeedReader
 }
 
+func lastReplicatedEvent(tx *sql.Tx)(string, int, error) {
+	//What's the last event seen?
+	log.Info("Select last event observed in replicated event feed")
+	var aggregateID string
+	var version int
+
+	start := time.Now()
+	err := tx.QueryRow(sqlLastObservedEvent).Scan(&aggregateID, &version)
+	logTimingStats("sqlLastObservedEvent", start, err)
+
+	return aggregateID, version, err
+}
+
 //ProcessFeed processes the atom feed based on the current state of
 //the replicated events
 func (r *OraEventStoreReplicator) ProcessFeed() (bool, error) {
@@ -99,12 +112,7 @@ func (r *OraEventStoreReplicator) ProcessFeed() (bool, error) {
 
 	//What's the last event seen?
 	log.Info("Select last event observed in replicated event feed")
-	var aggregateID string
-	var version int
-
-	start := time.Now()
-	err = tx.QueryRow(sqlLastObservedEvent).Scan(&aggregateID, &version)
-	logTimingStats("sqlLastObservedEvent", start, err)
+	aggregateID, version, err := lastReplicatedEvent(tx)
 
 	if err != nil && err != sql.ErrNoRows {
 		incrementCounts(errorCount, 1)
