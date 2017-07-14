@@ -30,10 +30,9 @@ const (
 )
 
 const (
-	sqlLastObservedEvent = `select aggregate_id, version from t_aeev_events where id = (select max(id) from t_aeev_events)`
-	sqlInsertEvent       = `insert into t_aeev_events (aggregate_id, version, typecode, event_time, payload) values(:1,:2,:3,:4,:5)`
-	sqlInsertPublish     = `insert into t_aepb_publish (aggregate_id, version) values(:1,:2)`
-	sqlLockTable         = `lock table t_aerl_replicator_lock in exclusive mode nowait`
+	sqlInsertEvent   = `insert into t_aeev_events (aggregate_id, version, typecode, event_time, payload) values(:1,:2,:3,:4,:5)`
+	sqlInsertPublish = `insert into t_aepb_publish (aggregate_id, version) values(:1,:2)`
+	sqlLockTable     = `lock table t_aerl_replicator_lock in exclusive mode nowait`
 )
 
 //Locker defines the locking interface needed for processing feed events.
@@ -68,7 +67,32 @@ type OraEventStoreReplicator struct {
 	feedReader FeedReader
 }
 
-func lastReplicatedEvent(tx *sql.Tx)(string, int, error) {
+func formLastReplicatedEventQuery(exclusions []string) string {
+	if len(exclusions) == 0 {
+		return `select aggregate_id, version from t_aeev_events order by id desc limit 1`
+	}
+
+	//We want the last aggregate minus the ones we know do not exist
+	var query = `select aggregate_id, version from t_aeev_events where  aggregate_id not in (`
+	first := true
+	for _, aggregateId := range exclusions {
+		if first == true {
+			first = false
+			query = fmt.Sprintf("%s '%s'", query, aggregateId)
+			continue
+		}
+
+		query = fmt.Sprintf("%s,'%s'", query, aggregateId)
+
+	}
+
+	query = query + `) order by id desc limit 1`
+
+	return query
+}
+
+func lastReplicatedEvent(tx *sql.Tx) (string, int, error) {
+	const sqlLastObservedEvent = `select aggregate_id, version from t_aeev_events order by id desc limit 1`
 	//What's the last event seen?
 	log.Info("Select last event observed in replicated event feed")
 	var aggregateID string
@@ -591,11 +615,10 @@ func (hr *HttpFeedReader) DecryptFeed(feedBytes []byte) ([]byte, error) {
 	return hr.decrypt(msgBytes, &decryptKey)
 }
 
-
-func (hr *HttpFeedReader) isPresentInSource(url, aggregateID string, version int) (bool,error) {
+func (hr *HttpFeedReader) isPresentInSource(url, aggregateID string, version int) (bool, error) {
 	var start time.Time
 
-	resource := fmt.Sprintf("%s/%s/%d", url,aggregateID, version)
+	resource := fmt.Sprintf("%s/%s/%d", url, aggregateID, version)
 	req, err := http.NewRequest("GET", resource, nil)
 	if err != nil {
 		return false, err
@@ -613,7 +636,7 @@ func (hr *HttpFeedReader) isPresentInSource(url, aggregateID string, version int
 
 	switch resp.StatusCode {
 	case http.StatusOK:
-		return true,nil
+		return true, nil
 	case http.StatusNotFound:
 		return false, nil
 	default:
