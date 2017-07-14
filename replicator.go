@@ -47,6 +47,7 @@ type Locker interface {
 type FeedReader interface {
 	GetRecent() (*atom.Feed, error)
 	GetFeed(feedid string) (*atom.Feed, error)
+	IsEventPresentInFeed(string, int) (bool, error)
 }
 
 //Replicator defines the interface replicators implement
@@ -91,18 +92,42 @@ func formLastReplicatedEventQuery(exclusions []string) string {
 	return query
 }
 
-func lastReplicatedEvent(tx *sql.Tx) (string, int, error) {
-	const sqlLastObservedEvent = `select aggregate_id, version from t_aeev_events order by id desc limit 1`
-	//What's the last event seen?
-	log.Info("Select last event observed in replicated event feed")
-	var aggregateID string
-	var version int
+func lastReplicatedEvent(feedReader FeedReader, tx *sql.Tx) (string, int, error) {
 
-	start := time.Now()
-	err := tx.QueryRow(sqlLastObservedEvent).Scan(&aggregateID, &version)
-	logTimingStats("sqlLastObservedEvent", start, err)
+	var exclusions []string
+	found := false
 
-	return aggregateID, version, err
+	for {
+		//What's the last event seen?
+		log.Info("Select last event observed in replicated event feed")
+		var aggregateID string
+		var version int
+
+		start := time.Now()
+		sql := formLastReplicatedEventQuery(exclusions)
+		err := tx.QueryRow(sql).Scan(&aggregateID, &version)
+		logTimingStats("sqlLastObservedEvent", start, err)
+
+		if err != nil {
+			return "", -1, err
+		}
+
+		//Does it exist?
+		log.Infof("Latest aggregate/version is %s - %d", aggregateID, version)
+		found, err = feedReader.IsEventPresentInFeed(aggregateID, version)
+		if err != nil {
+			return "", -1, err
+		}
+
+		if found == true {
+			log.Info("Found latest agrgregate/version in source")
+			return aggregateID, version, nil
+		}
+
+		log.Infof("Adding %s exclusions", aggregateID)
+		exclusions = append(exclusions, aggregateID)
+	}
+
 }
 
 //ProcessFeed processes the atom feed based on the current state of
@@ -136,7 +161,7 @@ func (r *OraEventStoreReplicator) ProcessFeed() (bool, error) {
 
 	//What's the last event seen?
 	log.Info("Select last event observed in replicated event feed")
-	aggregateID, version, err := lastReplicatedEvent(tx)
+	aggregateID, version, err := lastReplicatedEvent(r.feedReader, tx)
 
 	if err != nil && err != sql.ErrNoRows {
 		incrementCounts(errorCount, 1)
@@ -545,6 +570,11 @@ func (hr *HttpFeedReader) GetRecent() (*atom.Feed, error) {
 func (hr *HttpFeedReader) GetFeed(feedid string) (*atom.Feed, error) {
 	url := fmt.Sprintf("%s://%s/notifications/%s", hr.proto, hr.endpoint, feedid)
 	return hr.getResource(url)
+}
+
+func (hr *HttpFeedReader) IsEventPresentInFeed(aggregateID string, version int) (bool, error) {
+	url := fmt.Sprintf("%s://%s/events", hr.proto, hr.endpoint)
+	return hr.isPresentInSource(url, aggregateID, version)
 }
 
 //IsFeedEncrypted indicates if we use a key alias for decrypting the feed

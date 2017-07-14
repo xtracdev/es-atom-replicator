@@ -10,6 +10,8 @@ import (
 
 	"fmt"
 
+	"strings"
+
 	log "github.com/Sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	feedmock "github.com/xtracdev/es-atom-replicator/testing"
@@ -77,6 +79,14 @@ func (tfr *testFeedReader) GetFeed(feedid string) (*atom.Feed, error) {
 	} else {
 		return tfr.Feeds[feedid], nil
 	}
+}
+
+func (tfr *testFeedReader) IsEventPresentInFeed(ai string, v int) (bool, error) {
+	if strings.HasPrefix(ai, "unknown-agg-id") {
+		return false, nil
+
+	}
+	return true, nil
 }
 
 func initTestFeedReader() *testFeedReader {
@@ -268,6 +278,33 @@ func TestReplWhenLastInMidFeed(t *testing.T) {
 
 	mock.ExpectBegin()
 	testExpectLock(mock, false, true)
+	testExpectQueryReturnAggregateAndVersion(mock, "f3234d82-0cff-4221-64de-315c8ab6dbd6", "1")
+	testExpectInsertIntoEvents(mock, "f3234d82-0cff-4221-64de-315c8ab6dbd6", "2")
+	testExpectInsertIntoEvents(mock, "9f02eae0-bf8c-46c1-7afb-9af83616b0ae", "1")
+	mock.ExpectCommit()
+
+	feedReader := initTestFeedReader()
+
+	replicator, err := testFactory.New(new(TableLocker), feedReader, db)
+
+	replicator.ProcessFeed()
+
+	err = mock.ExpectationsWereMet()
+	assert.Nil(t, err)
+}
+
+func TestReplWhenLastInMidFeedAndLatestDoeNotExist(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("an error '%s' was not expected when opening a stub database connection", err)
+	}
+	defer db.Close()
+
+	mock.ExpectBegin()
+	testExpectLock(mock, false, true)
+	testExpectQueryReturnAggregateAndVersion(mock, "unknown-agg-id-1", "1")
+	testExpectQueryReturnAggregateAndVersion(mock, "unknown-agg-id-2", "1")
+	testExpectQueryReturnAggregateAndVersion(mock, "unknown-agg-id-3", "1")
 	testExpectQueryReturnAggregateAndVersion(mock, "f3234d82-0cff-4221-64de-315c8ab6dbd6", "1")
 	testExpectInsertIntoEvents(mock, "f3234d82-0cff-4221-64de-315c8ab6dbd6", "2")
 	testExpectInsertIntoEvents(mock, "9f02eae0-bf8c-46c1-7afb-9af83616b0ae", "1")
