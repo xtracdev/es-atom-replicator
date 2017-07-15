@@ -70,11 +70,12 @@ type OraEventStoreReplicator struct {
 
 func formLastReplicatedEventQuery(exclusions []string) string {
 	if len(exclusions) == 0 {
-		return `select aggregate_id, version from t_aeev_events order by id desc limit 1`
+		//return `select aggregate_id, version from t_aeev_events order by id desc limit 1`
+		return `select aggregate_id, version from (select aggregate_id, version from t_aeev_events order by id desc) where rownum < 2`
 	}
 
 	//We want the last aggregate minus the ones we know do not exist
-	var query = `select aggregate_id, version from t_aeev_events where  aggregate_id not in (`
+	var query = `select aggregate_id, version from (select aggregate_id, version from t_aeev_events where  aggregate_id not in (`
 	first := true
 	for _, aggregateId := range exclusions {
 		if first == true {
@@ -87,7 +88,7 @@ func formLastReplicatedEventQuery(exclusions []string) string {
 
 	}
 
-	query = query + `) order by id desc limit 1`
+	query = query + `) order by id desc) where rownum < 2`
 
 	return query
 }

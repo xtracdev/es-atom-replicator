@@ -475,17 +475,17 @@ func TestEventPresentWhenServerReturnsError(t *testing.T) {
 func TestFormLastEventQueryNoExclusions(t *testing.T) {
 	var exclusions []string
 	query := formLastReplicatedEventQuery(exclusions)
-	assert.Equal(t, "select aggregate_id, version from t_aeev_events order by id desc limit 1", query)
+	assert.Equal(t, "select aggregate_id, version from (select aggregate_id, version from t_aeev_events order by id desc) where rownum < 2", query)
 }
 
 func TestFormLastEventQueryWithOneExclusion(t *testing.T) {
 	var exclusions = []string{"abc123"}
 	query := formLastReplicatedEventQuery(exclusions)
-	assert.Equal(t, "select aggregate_id, version from t_aeev_events where  aggregate_id not in ( 'abc123') order by id desc limit 1", query)
+	assert.Equal(t, "select aggregate_id, version from (select aggregate_id, version from t_aeev_events where  aggregate_id not in ( 'abc123') order by id desc) where rownum < 2", query)
 }
 
 func TestFormLastEventQueryWithMultipleExclusions(t *testing.T) {
 	var exclusions = []string{"abc123", "foo123", "bar123"}
 	query := formLastReplicatedEventQuery(exclusions)
-	assert.Equal(t, "select aggregate_id, version from t_aeev_events where  aggregate_id not in ( 'abc123','foo123','bar123') order by id desc limit 1", query)
+	assert.Equal(t, "select aggregate_id, version from (select aggregate_id, version from t_aeev_events where  aggregate_id not in ( 'abc123','foo123','bar123') order by id desc) where rownum < 2", query)
 }
