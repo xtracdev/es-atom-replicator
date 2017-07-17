@@ -12,4 +12,4 @@ Feature: Feed replication
     When the latest aggregate reference is not in the source
     And I replicate
     Then I pick up the new events anyway
-    And the non-existant aggregate is removed from the database
+    And the non-existent aggregate is removed from the database

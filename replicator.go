@@ -72,11 +72,11 @@ func formLastReplicatedEventQuery() string {
 	return `select aggregate_id, version from t_aeev_events where id = (select max(id) from t_aeev_events)`
 }
 
-// If we encounter a non-existant entity as the latest in our feed, we need to remove it
+// If we encounter a non-existent entity as the latest in our feed, we need to remove it
 // from the database or we might not be able to make progress in reading later events if we
 // keep searching the feed for the entity.
-func deleteNonexistantEntity(tx *sql.Tx, aggregate_id string, version int) error {
-	log.Warnf("Deleting non-existant aggregate %s %d from database", aggregate_id, version)
+func deleteNonexistentEntity(tx *sql.Tx, aggregate_id string, version int) error {
+	log.Warnf("Deleting non-existent aggregate %s %d from database", aggregate_id, version)
 	_,err := tx.Exec(`delete from t_aepb_publish where aggregate_id = :1 and version = :2`, aggregate_id, version)
 	if err != nil {
 		return err
@@ -118,7 +118,7 @@ func lastReplicatedEvent(feedReader FeedReader, tx *sql.Tx) (string, int, error)
 		}
 
 		//If the aggregate does not exist, delete it.
-		err = deleteNonexistantEntity(tx, aggregateID, version)
+		err = deleteNonexistentEntity(tx, aggregateID, version)
 		if err != nil {
 			return "", -1, err
 		}

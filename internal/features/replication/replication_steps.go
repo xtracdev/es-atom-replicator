@@ -95,7 +95,7 @@ func init() {
 
 	})
 
-	And(`^the non-existant aggregate is removed from the database$`, func() {
+	And(`^the non-existent aggregate is removed from the database$`, func() {
 		count := 1
 		err := db.QueryRow(`select count(*) from t_aeev_events where aggregate_id = 'foo' and version = 1`).Scan(&count)
 		if assert.Nil(T,err) {

@@ -266,7 +266,7 @@ var RetrieveEventHandler = func(w http.ResponseWriter, r *http.Request) {
 
 	var statusCode int
 	switch aggregateId {
-	case "non-existant":
+	case "non-existent":
 		statusCode = http.StatusNotFound
 	case "error-time":
 		statusCode = http.StatusInternalServerError

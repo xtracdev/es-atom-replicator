@@ -447,7 +447,7 @@ func TestEventPresentWhenExists(t *testing.T) {
 
 	exists, err := httpReplicator.isPresentInSource(endpoint, "i-know-this", 7)
 	if assert.Nil(t, err) {
-		assert.True(t, exists, "Expected aggregate to be flagged as non-existant")
+		assert.True(t, exists, "Expected aggregate to be flagged as non-existent")
 	}
 }
 
@@ -461,9 +461,9 @@ func TestEventPresentWhenNonExistant(t *testing.T) {
 
 	endpoint := fmt.Sprintf("http://%s/events", url.Host)
 
-	exists, err := httpReplicator.isPresentInSource(endpoint, "non-existant", 7)
+	exists, err := httpReplicator.isPresentInSource(endpoint, "non-existent", 7)
 	if assert.Nil(t, err) {
-		assert.False(t, exists, "Expected aggregate to be flagged as non-existant")
+		assert.False(t, exists, "Expected aggregate to be flagged as non-existent")
 	}
 }
 
