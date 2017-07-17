@@ -68,34 +68,26 @@ type OraEventStoreReplicator struct {
 	feedReader FeedReader
 }
 
-func formLastReplicatedEventQuery(exclusions []string) string {
-	if len(exclusions) == 0 {
-		//return `select aggregate_id, version from t_aeev_events order by id desc limit 1`
-		return `select aggregate_id, version from (select aggregate_id, version from t_aeev_events order by id desc) where rownum < 2`
+func formLastReplicatedEventQuery() string {
+	return `select aggregate_id, version from t_aeev_events where id = (select max(id) from t_aeev_events)`
+}
+
+// If we encounter a non-existant entity as the latest in our feed, we need to remove it
+// from the database or we might not be able to make progress in reading later events if we
+// keep searching the feed for the entity.
+func deleteNonexistantEntity(tx *sql.Tx, aggregate_id string, version int) error {
+	log.Warnf("Deleting non-existant aggregate %s %d from database", aggregate_id, version)
+	_,err := tx.Exec(`delete from t_aepb_publish where aggregate_id = :1 and version = :2`, aggregate_id, version)
+	if err != nil {
+		return err
 	}
 
-	//We want the last aggregate minus the ones we know do not exist
-	var query = `select aggregate_id, version from (select aggregate_id, version from t_aeev_events where  aggregate_id not in (`
-	first := true
-	for _, aggregateId := range exclusions {
-		if first == true {
-			first = false
-			query = fmt.Sprintf("%s '%s'", query, aggregateId)
-			continue
-		}
-
-		query = fmt.Sprintf("%s,'%s'", query, aggregateId)
-
-	}
-
-	query = query + `) order by id desc) where rownum < 2`
-
-	return query
+	_, err = tx.Exec(`delete from t_aeev_events where aggregate_id = :1 and version = :2`, aggregate_id, version)
+	return err
 }
 
 func lastReplicatedEvent(feedReader FeedReader, tx *sql.Tx) (string, int, error) {
 
-	var exclusions []string
 	found := false
 
 	for {
@@ -105,7 +97,7 @@ func lastReplicatedEvent(feedReader FeedReader, tx *sql.Tx) (string, int, error)
 		var version int
 
 		start := time.Now()
-		sql := formLastReplicatedEventQuery(exclusions)
+		sql := formLastReplicatedEventQuery()
 		err := tx.QueryRow(sql).Scan(&aggregateID, &version)
 		logTimingStats("sqlLastObservedEvent", start, err)
 
@@ -114,7 +106,7 @@ func lastReplicatedEvent(feedReader FeedReader, tx *sql.Tx) (string, int, error)
 		}
 
 		//Does it exist?
-		log.Infof("Latest aggregate/version is %s - %d", aggregateID, version)
+		log.Infof("Check existance of atest aggregate/version is %s - %d in source feed", aggregateID, version)
 		found, err = feedReader.IsEventPresentInFeed(aggregateID, version)
 		if err != nil {
 			return "", -1, err
@@ -125,8 +117,11 @@ func lastReplicatedEvent(feedReader FeedReader, tx *sql.Tx) (string, int, error)
 			return aggregateID, version, nil
 		}
 
-		log.Infof("Adding %s exclusions", aggregateID)
-		exclusions = append(exclusions, aggregateID)
+		//If the aggregate does not exist, delete it.
+		err = deleteNonexistantEntity(tx, aggregateID, version)
+		if err != nil {
+			return "", -1, err
+		}
 	}
 
 }
@@ -650,6 +645,7 @@ func (hr *HttpFeedReader) isPresentInSource(url, aggregateID string, version int
 	var start time.Time
 
 	resource := fmt.Sprintf("%s/%s/%d", url, aggregateID, version)
+	log.Info("check aggregate via ", resource)
 	req, err := http.NewRequest("GET", resource, nil)
 	if err != nil {
 		return false, err

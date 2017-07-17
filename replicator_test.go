@@ -58,6 +58,12 @@ func testExpectQueryReturnAggregateAndVersion(mock sqlmock.Sqlmock, aggID, versi
 	mock.ExpectQuery("select aggregate_id, version from t_aeev_events").WillReturnRows(rows)
 }
 
+func testExpectAggDelete(mock sqlmock.Sqlmock, aggID string, version int) {
+	execOkResult := sqlmock.NewResult(1, 1)
+	mock.ExpectExec("delete from t_aepb_publish where aggregate_id = :1 and version = :2").WithArgs(aggID, version).WillReturnResult(execOkResult)
+	mock.ExpectExec("delete from t_aeev_events where aggregate_id = :1 and version = :2").WithArgs(aggID, version).WillReturnResult(execOkResult)
+}
+
 type testFeedReader struct {
 	Feeds map[string]*atom.Feed
 }
@@ -303,8 +309,11 @@ func TestReplWhenLastInMidFeedAndLatestDoeNotExist(t *testing.T) {
 	mock.ExpectBegin()
 	testExpectLock(mock, false, true)
 	testExpectQueryReturnAggregateAndVersion(mock, "unknown-agg-id-1", "1")
+	testExpectAggDelete(mock, "unknown-agg-id-1", 1)
 	testExpectQueryReturnAggregateAndVersion(mock, "unknown-agg-id-2", "1")
+	testExpectAggDelete(mock, "unknown-agg-id-2", 1)
 	testExpectQueryReturnAggregateAndVersion(mock, "unknown-agg-id-3", "1")
+	testExpectAggDelete(mock, "unknown-agg-id-3", 1)
 	testExpectQueryReturnAggregateAndVersion(mock, "f3234d82-0cff-4221-64de-315c8ab6dbd6", "1")
 	testExpectInsertIntoEvents(mock, "f3234d82-0cff-4221-64de-315c8ab6dbd6", "2")
 	testExpectInsertIntoEvents(mock, "9f02eae0-bf8c-46c1-7afb-9af83616b0ae", "1")
@@ -438,7 +447,7 @@ func TestEventPresentWhenExists(t *testing.T) {
 
 	exists, err := httpReplicator.isPresentInSource(endpoint, "i-know-this", 7)
 	if assert.Nil(t, err) {
-		assert.True(t, exists, "Expected aggregate to be flagged as non0existant")
+		assert.True(t, exists, "Expected aggregate to be flagged as non-existant")
 	}
 }
 
@@ -454,7 +463,7 @@ func TestEventPresentWhenNonExistant(t *testing.T) {
 
 	exists, err := httpReplicator.isPresentInSource(endpoint, "non-existant", 7)
 	if assert.Nil(t, err) {
-		assert.False(t, exists, "Expected aggregate to be flagged as non0existant")
+		assert.False(t, exists, "Expected aggregate to be flagged as non-existant")
 	}
 }
 
@@ -470,22 +479,4 @@ func TestEventPresentWhenServerReturnsError(t *testing.T) {
 
 	_, err := httpReplicator.isPresentInSource(endpoint, "error-time", 7)
 	assert.NotNil(t, err)
-}
-
-func TestFormLastEventQueryNoExclusions(t *testing.T) {
-	var exclusions []string
-	query := formLastReplicatedEventQuery(exclusions)
-	assert.Equal(t, "select aggregate_id, version from (select aggregate_id, version from t_aeev_events order by id desc) where rownum < 2", query)
-}
-
-func TestFormLastEventQueryWithOneExclusion(t *testing.T) {
-	var exclusions = []string{"abc123"}
-	query := formLastReplicatedEventQuery(exclusions)
-	assert.Equal(t, "select aggregate_id, version from (select aggregate_id, version from t_aeev_events where  aggregate_id not in ( 'abc123') order by id desc) where rownum < 2", query)
-}
-
-func TestFormLastEventQueryWithMultipleExclusions(t *testing.T) {
-	var exclusions = []string{"abc123", "foo123", "bar123"}
-	query := formLastReplicatedEventQuery(exclusions)
-	assert.Equal(t, "select aggregate_id, version from (select aggregate_id, version from t_aeev_events where  aggregate_id not in ( 'abc123','foo123','bar123') order by id desc) where rownum < 2", query)
 }

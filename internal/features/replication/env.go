@@ -35,3 +35,19 @@ func initializeEnvironment() (replicator.Replicator, *sql.DB, error) {
 	rep, err := factory.New(locker, httpReplicator, oraDB.DB)
 	return rep, oraDB.DB, err
 }
+
+func getMoreReplicator(db *sql.DB)(replicator.Replicator) {
+	ts := httptest.NewServer(http.HandlerFunc(feedmock.GetMoreFeedHandler))
+	url, _ := url.Parse(ts.URL)
+
+	log.Infof("test server endpoint is %s", url.Host)
+	httpReplicator := replicator.NewHttpFeedReader(url.Host, "http", "", nil)
+
+	locker := new(replicator.TableLocker)
+
+	factory := replicator.OraEventStoreReplicatorFactory{}
+
+	rep, _ := factory.New(locker, httpReplicator, db)
+	return rep
+}
+
