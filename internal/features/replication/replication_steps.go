@@ -60,6 +60,50 @@ func init() {
 		}
 	})
 
+	And(`^new events to replicate$`, func() {
+		replicator = getMoreReplicator(db)
+	})
+
+	When(`^the latest aggregate reference is not in the source$`, func() {
+		_,err := db.Exec(`insert into t_aeev_events(aggregate_id, version, typecode) values('foo',1, 'footc')`)
+		assert.Nil(T,err)
+	})
+
+	And(`^I replicate$`, func() {
+		//Next replication run picks up second page
+		_, err := replicator.ProcessFeed()
+		assert.Nil(T, err)
+
+		//Running the replicator again picks up the most recent events
+		_, err = replicator.ProcessFeed()
+		assert.Nil(T, err)
+	})
+
+	Then(`^I pick up the new events anyway$`, func() {
+		dbEntries, err := getEntries(db)
+		var foundLatestFromMoreFeed bool
+		if assert.Nil(T,err) {
+			for _, entry := range dbEntries {
+				log.Print(entry.ID)
+				if entry.ID == "urn:esid:ad5f255c-c5f2-42cb-7f06-5be564e91fd9:1" {
+					foundLatestFromMoreFeed = true
+					break
+				}
+			}
+		}
+		assert.True(T, foundLatestFromMoreFeed)
+
+	})
+
+	And(`^the non-existent aggregate is removed from the database$`, func() {
+		count := 1
+		err := db.QueryRow(`select count(*) from t_aeev_events where aggregate_id = 'foo' and version = 1`).Scan(&count)
+		if assert.Nil(T,err) {
+			assert.Equal(T, 0, count)
+		}
+	})
+
+
 }
 
 func getEntries(db *sql.DB) ([]*atom.Entry, error) {

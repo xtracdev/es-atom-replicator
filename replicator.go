@@ -30,10 +30,9 @@ const (
 )
 
 const (
-	sqlLastObservedEvent = `select aggregate_id, version from t_aeev_events where id = (select max(id) from t_aeev_events)`
-	sqlInsertEvent       = `insert into t_aeev_events (aggregate_id, version, typecode, event_time, payload) values(:1,:2,:3,:4,:5)`
-	sqlInsertPublish     = `insert into t_aepb_publish (aggregate_id, version) values(:1,:2)`
-	sqlLockTable         = `lock table t_aerl_replicator_lock in exclusive mode nowait`
+	sqlInsertEvent   = `insert into t_aeev_events (aggregate_id, version, typecode, event_time, payload) values(:1,:2,:3,:4,:5)`
+	sqlInsertPublish = `insert into t_aepb_publish (aggregate_id, version) values(:1,:2)`
+	sqlLockTable     = `lock table t_aerl_replicator_lock in exclusive mode nowait`
 )
 
 //Locker defines the locking interface needed for processing feed events.
@@ -48,6 +47,7 @@ type Locker interface {
 type FeedReader interface {
 	GetRecent() (*atom.Feed, error)
 	GetFeed(feedid string) (*atom.Feed, error)
+	IsEventPresentInFeed(string, int) (bool, error)
 }
 
 //Replicator defines the interface replicators implement
@@ -66,6 +66,64 @@ type OraEventStoreReplicator struct {
 	db         *sql.DB
 	locker     Locker
 	feedReader FeedReader
+}
+
+func formLastReplicatedEventQuery() string {
+	return `select aggregate_id, version from t_aeev_events where id = (select max(id) from t_aeev_events)`
+}
+
+// If we encounter a non-existent entity as the latest in our feed, we need to remove it
+// from the database or we might not be able to make progress in reading later events if we
+// keep searching the feed for the entity.
+func deleteNonexistentEntity(tx *sql.Tx, aggregate_id string, version int) error {
+	log.Warnf("Deleting non-existent aggregate %s %d from database", aggregate_id, version)
+	_,err := tx.Exec(`delete from t_aepb_publish where aggregate_id = :1 and version = :2`, aggregate_id, version)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(`delete from t_aeev_events where aggregate_id = :1 and version = :2`, aggregate_id, version)
+	return err
+}
+
+func lastReplicatedEvent(feedReader FeedReader, tx *sql.Tx) (string, int, error) {
+
+	found := false
+
+	for {
+		//What's the last event seen?
+		log.Info("Select last event observed in replicated event feed")
+		var aggregateID string
+		var version int
+
+		start := time.Now()
+		sql := formLastReplicatedEventQuery()
+		err := tx.QueryRow(sql).Scan(&aggregateID, &version)
+		logTimingStats("sqlLastObservedEvent", start, err)
+
+		if err != nil {
+			return "", -1, err
+		}
+
+		//Does it exist?
+		log.Infof("Check existance of atest aggregate/version is %s - %d in source feed", aggregateID, version)
+		found, err = feedReader.IsEventPresentInFeed(aggregateID, version)
+		if err != nil {
+			return "", -1, err
+		}
+
+		if found == true {
+			log.Info("Found latest agrgregate/version in source")
+			return aggregateID, version, nil
+		}
+
+		//If the aggregate does not exist, delete it.
+		err = deleteNonexistentEntity(tx, aggregateID, version)
+		if err != nil {
+			return "", -1, err
+		}
+	}
+
 }
 
 //ProcessFeed processes the atom feed based on the current state of
@@ -99,12 +157,7 @@ func (r *OraEventStoreReplicator) ProcessFeed() (bool, error) {
 
 	//What's the last event seen?
 	log.Info("Select last event observed in replicated event feed")
-	var aggregateID string
-	var version int
-
-	start := time.Now()
-	err = tx.QueryRow(sqlLastObservedEvent).Scan(&aggregateID, &version)
-	logTimingStats("sqlLastObservedEvent", start, err)
+	aggregateID, version, err := lastReplicatedEvent(r.feedReader, tx)
 
 	if err != nil && err != sql.ErrNoRows {
 		incrementCounts(errorCount, 1)
@@ -515,6 +568,11 @@ func (hr *HttpFeedReader) GetFeed(feedid string) (*atom.Feed, error) {
 	return hr.getResource(url)
 }
 
+func (hr *HttpFeedReader) IsEventPresentInFeed(aggregateID string, version int) (bool, error) {
+	url := fmt.Sprintf("%s://%s/events", hr.proto, hr.endpoint)
+	return hr.isPresentInSource(url, aggregateID, version)
+}
+
 //IsFeedEncrypted indicates if we use a key alias for decrypting the feed
 func (hr *HttpFeedReader) IsFeedEncrypted() bool {
 	return hr.keyAlias != ""
@@ -581,6 +639,37 @@ func (hr *HttpFeedReader) DecryptFeed(feedBytes []byte) ([]byte, error) {
 	copy(decryptKey[:], decryptedKey.Plaintext[0:32])
 
 	return hr.decrypt(msgBytes, &decryptKey)
+}
+
+func (hr *HttpFeedReader) isPresentInSource(url, aggregateID string, version int) (bool, error) {
+	var start time.Time
+
+	resource := fmt.Sprintf("%s/%s/%d", url, aggregateID, version)
+	log.Info("check aggregate via ", resource)
+	req, err := http.NewRequest("GET", resource, nil)
+	if err != nil {
+		return false, err
+	}
+
+	start = time.Now()
+	resp, err := hr.client.Do(req)
+	logTimingStats("isPresentInSource client.Do", start, err)
+
+	if err != nil {
+		return false, err
+	}
+
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return true, nil
+	case http.StatusNotFound:
+		return false, nil
+	default:
+		return false, errors.New(fmt.Sprintf("Unexpected status code verifying event in source: %d", resp.StatusCode))
+	}
+
 }
 
 //getResource does a git on the specified feed resource

@@ -8,6 +8,10 @@ import (
 	"net/url"
 	"testing"
 
+	"fmt"
+
+	"strings"
+
 	log "github.com/Sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	feedmock "github.com/xtracdev/es-atom-replicator/testing"
@@ -42,16 +46,22 @@ func testExpectInsertIntoEvents(mock sqlmock.Sqlmock, aggID, version string) {
 
 func testExpectQueryReturnNoRows(mock sqlmock.Sqlmock) {
 	rows := sqlmock.NewRows([]string{"aggregate_id", "version"})
-	mock.ExpectQuery("select aggregate_id, version from t_aeev_events where id").WillReturnRows(rows)
+	mock.ExpectQuery("select aggregate_id, version from t_aeev_events").WillReturnRows(rows)
 }
 
 func testExpectQueryReturnError(mock sqlmock.Sqlmock) {
-	mock.ExpectQuery("select aggregate_id, version from t_aeev_events where id").WillReturnError(errors.New("dang"))
+	mock.ExpectQuery("select aggregate_id, version from t_aeev_events").WillReturnError(errors.New("dang"))
 }
 
 func testExpectQueryReturnAggregateAndVersion(mock sqlmock.Sqlmock, aggID, version string) {
 	rows := sqlmock.NewRows([]string{"aggregate_id", "version"}).AddRow(aggID, version)
-	mock.ExpectQuery("select aggregate_id, version from t_aeev_events where id").WillReturnRows(rows)
+	mock.ExpectQuery("select aggregate_id, version from t_aeev_events").WillReturnRows(rows)
+}
+
+func testExpectAggDelete(mock sqlmock.Sqlmock, aggID string, version int) {
+	execOkResult := sqlmock.NewResult(1, 1)
+	mock.ExpectExec("delete from t_aepb_publish where aggregate_id = :1 and version = :2").WithArgs(aggID, version).WillReturnResult(execOkResult)
+	mock.ExpectExec("delete from t_aeev_events where aggregate_id = :1 and version = :2").WithArgs(aggID, version).WillReturnResult(execOkResult)
 }
 
 type testFeedReader struct {
@@ -75,6 +85,14 @@ func (tfr *testFeedReader) GetFeed(feedid string) (*atom.Feed, error) {
 	} else {
 		return tfr.Feeds[feedid], nil
 	}
+}
+
+func (tfr *testFeedReader) IsEventPresentInFeed(ai string, v int) (bool, error) {
+	if strings.HasPrefix(ai, "unknown-agg-id") {
+		return false, nil
+
+	}
+	return true, nil
 }
 
 func initTestFeedReader() *testFeedReader {
@@ -281,6 +299,36 @@ func TestReplWhenLastInMidFeed(t *testing.T) {
 	assert.Nil(t, err)
 }
 
+func TestReplWhenLastInMidFeedAndLatestDoeNotExist(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("an error '%s' was not expected when opening a stub database connection", err)
+	}
+	defer db.Close()
+
+	mock.ExpectBegin()
+	testExpectLock(mock, false, true)
+	testExpectQueryReturnAggregateAndVersion(mock, "unknown-agg-id-1", "1")
+	testExpectAggDelete(mock, "unknown-agg-id-1", 1)
+	testExpectQueryReturnAggregateAndVersion(mock, "unknown-agg-id-2", "1")
+	testExpectAggDelete(mock, "unknown-agg-id-2", 1)
+	testExpectQueryReturnAggregateAndVersion(mock, "unknown-agg-id-3", "1")
+	testExpectAggDelete(mock, "unknown-agg-id-3", 1)
+	testExpectQueryReturnAggregateAndVersion(mock, "f3234d82-0cff-4221-64de-315c8ab6dbd6", "1")
+	testExpectInsertIntoEvents(mock, "f3234d82-0cff-4221-64de-315c8ab6dbd6", "2")
+	testExpectInsertIntoEvents(mock, "9f02eae0-bf8c-46c1-7afb-9af83616b0ae", "1")
+	mock.ExpectCommit()
+
+	feedReader := initTestFeedReader()
+
+	replicator, err := testFactory.New(new(TableLocker), feedReader, db)
+
+	replicator.ProcessFeed()
+
+	err = mock.ExpectationsWereMet()
+	assert.Nil(t, err)
+}
+
 func TestReplWhenLastIsLatest(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -385,4 +433,50 @@ func TestUniqueConstraintErrorTest(t *testing.T) {
 
 	errText = "Replication insert failed: ORA-00001: unique constraint (APIFPDM1AXWFDBO.AEEVPK_AGGREGATE_ID$VERSION) violated"
 	assert.True(t, isUniqueConstraintViolation(errText))
+}
+
+func TestEventPresentWhenExists(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(feedmock.RetrieveEventHandler))
+	defer ts.Close()
+
+	url, _ := url.Parse(ts.URL)
+	log.Infof("test server endpoint is %s", url.Host)
+	httpReplicator := NewHttpFeedReader(url.Host, "http", "", nil)
+
+	endpoint := fmt.Sprintf("http://%s/events", url.Host)
+
+	exists, err := httpReplicator.isPresentInSource(endpoint, "i-know-this", 7)
+	if assert.Nil(t, err) {
+		assert.True(t, exists, "Expected aggregate to be flagged as non-existent")
+	}
+}
+
+func TestEventPresentWhenNonExistant(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(feedmock.RetrieveEventHandler))
+	defer ts.Close()
+
+	url, _ := url.Parse(ts.URL)
+	log.Infof("test server endpoint is %s", url.Host)
+	httpReplicator := NewHttpFeedReader(url.Host, "http", "", nil)
+
+	endpoint := fmt.Sprintf("http://%s/events", url.Host)
+
+	exists, err := httpReplicator.isPresentInSource(endpoint, "non-existent", 7)
+	if assert.Nil(t, err) {
+		assert.False(t, exists, "Expected aggregate to be flagged as non-existent")
+	}
+}
+
+func TestEventPresentWhenServerReturnsError(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(feedmock.RetrieveEventHandler))
+	defer ts.Close()
+
+	url, _ := url.Parse(ts.URL)
+	log.Infof("test server endpoint is %s", url.Host)
+	httpReplicator := NewHttpFeedReader(url.Host, "http", "", nil)
+
+	endpoint := fmt.Sprintf("http://%s/events", url.Host)
+
+	_, err := httpReplicator.isPresentInSource(endpoint, "error-time", 7)
+	assert.NotNil(t, err)
 }

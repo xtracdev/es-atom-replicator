@@ -32,6 +32,42 @@ var Recent = `
     </entry>
 </feed>`
 
+
+var MoreRecent = `
+<feed
+    xmlns="http://www.w3.org/2005/Atom">
+    <title>Event store feed</title>
+    <id>recent</id>
+    <link rel="self" href="http://localhost:5000/notifications/recent"></link>
+    <link rel="related" href="http://localhost:5000/notifications/recent"></link>
+    <link rel="prev-archive" href="http://localhost:5000/notifications/9BC3EA7D-51E2-8C61-0E08-02368CD22054"></link>
+    <updated>2016-10-31T11:05:28-07:00</updated>
+    <entry>
+        <title>event</title>
+        <id>urn:esid:ad5f255c-c5f2-42cb-7f06-5be564e91fd9:1</id>
+        <link rel="self" href="http://localhost:5000/notifications/ad5f255c-c5f2-42cb-7f06-5be564e91fd9/1"></link>
+        <published>2016-10-31T11:03:06.232441-07:00</published>
+        <updated></updated>
+        <content type="TACRE">CiQ5YzVmMjU1Yy1jNWYyLTQyY2ItN2YwNi01YmU1NjRlOTFmZDkSBWZvbyA3GgViYXIgNyITYmF6ICUhZChNSVNTSU5HKSwgaQ==</content>
+    </entry>
+    <entry>
+        <title>event</title>
+        <id>urn:esid:9c5f255c-c5f2-42cb-7f06-5be564e91fd9:1</id>
+        <link rel="self" href="http://localhost:5000/notifications/9c5f255c-c5f2-42cb-7f06-5be564e91fd9/1"></link>
+        <published>2016-10-31T11:03:05.232441-07:00</published>
+        <updated></updated>
+        <content type="TACRE">CiQ5YzVmMjU1Yy1jNWYyLTQyY2ItN2YwNi01YmU1NjRlOTFmZDkSBWZvbyA3GgViYXIgNyITYmF6ICUhZChNSVNTSU5HKSwgaQ==</content>
+    </entry>
+    <entry>
+        <title>event</title>
+        <id>urn:esid:1f454e71-42f9-4d88-6979-ae643aa88cdd:1</id>
+        <link rel="self" href="http://localhost:5000/notifications/1f454e71-42f9-4d88-6979-ae643aa88cdd/1"></link>
+        <published>2016-10-31T11:03:05.224863-07:00</published>
+        <updated></updated>
+        <content type="TACRE">CiQxZjQ1NGU3MS00MmY5LTRkODgtNjk3OS1hZTY0M2FhODhjZGQSBWZvbyA1GgViYXIgNSITYmF6ICUhZChNSVNTSU5HKSwgaQ==</content>
+    </entry>
+</feed>`
+
 var SecondArchive = `
 <feed
     xmlns="http://www.w3.org/2005/Atom">
@@ -130,8 +166,50 @@ var RecentHandler = func(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(Recent))
 }
 
+var knownAggregates = []string{
+	"9c5f255c-c5f2-42cb-7f06-5be564e91fd9",
+	"1f454e71-42f9-4d88-6979-ae643aa88cdd",
+	"ad5f255c-c5f2-42cb-7f06-5be564e91fd9",
+	"9f02eae0-bf8c-46c1-7afb-9af83616b0ae",
+	"f3234d82-0cff-4221-64de-315c8ab6dbd6",
+	"3418b971-0ea8-483d-4520-9bfbc6a1d356",
+	"e44afbe7-e24f-4bdf-4fa8-9cfc46e4c496",
+	"3a56b98b-0a03-4822-44c7-93216255d857",
+	"cee18efc-0568-48f9-764c-149085ea0324",
+
+}
+
+func isKnownEvent(aggregateID string) bool {
+	for _, aggID := range knownAggregates {
+		if aggID == aggregateID {
+			return true
+		}
+	}
+
+	return false
+}
+
+func processExistanceTest(w http.ResponseWriter, path string) {
+
+	parts := strings.Split(path, "/")
+	if len(parts) == 4 {
+		if isKnownEvent(parts[2]) {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+	}
+	w.WriteHeader(http.StatusNotFound)
+}
+
 var GetFeedHandler = func(w http.ResponseWriter, r *http.Request) {
 
+	//Checking for specific event?
+	if strings.HasPrefix(r.URL.Path, "/events") {
+		processExistanceTest(w, r.URL.Path)
+		return
+	}
+
+	//Implement feed data
 	parts := strings.Split(r.URL.Path, "/")
 	feedid := parts[len(parts)-1]
 
@@ -151,4 +229,50 @@ var GetFeedHandler = func(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Write([]byte(feedData))
+}
+
+var GetMoreFeedHandler = func(w http.ResponseWriter, r *http.Request) {
+
+	//Checking for specific event?
+	if strings.HasPrefix(r.URL.Path, "/events") {
+		processExistanceTest(w, r.URL.Path)
+		return
+	}
+
+	parts := strings.Split(r.URL.Path, "/")
+	feedid := parts[len(parts)-1]
+
+	var feedData string
+	switch feedid {
+	case "recent":
+		feedData = MoreRecent
+	case "9BC3EA7D-51E2-8C61-0E08-02368CD22054":
+		feedData = SecondArchive
+	case "9AF82230-6137-4DA3-3580-80EDA74B0DE2":
+		feedData = FirstArchive
+	}
+
+	if feedData == "" {
+		http.Error(w, "", http.StatusNotFound)
+		return
+	}
+
+	w.Write([]byte(feedData))
+}
+
+var RetrieveEventHandler = func(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(r.URL.Path, "/")
+	aggregateId := parts[len(parts) - 2]
+
+	var statusCode int
+	switch aggregateId {
+	case "non-existent":
+		statusCode = http.StatusNotFound
+	case "error-time":
+		statusCode = http.StatusInternalServerError
+	default:
+		statusCode = http.StatusOK
+	}
+
+	w.WriteHeader(statusCode)
 }
