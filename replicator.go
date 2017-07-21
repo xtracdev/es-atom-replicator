@@ -77,7 +77,7 @@ func formLastReplicatedEventQuery() string {
 // keep searching the feed for the entity.
 func deleteNonexistentEntity(tx *sql.Tx, aggregate_id string, version int) error {
 	log.Warnf("Deleting non-existent aggregate %s %d from database", aggregate_id, version)
-	_,err := tx.Exec(`delete from t_aepb_publish where aggregate_id = :1 and version = :2`, aggregate_id, version)
+	_, err := tx.Exec(`delete from t_aepb_publish where aggregate_id = :1 and version = :2`, aggregate_id, version)
 	if err != nil {
 		return err
 	}
@@ -106,7 +106,7 @@ func lastReplicatedEvent(feedReader FeedReader, tx *sql.Tx) (string, int, error)
 		}
 
 		//Does it exist?
-		log.Infof("Check existance of atest aggregate/version is %s - %d in source feed", aggregateID, version)
+		log.Infof("Check existance of latest aggregate/version is %s - %d in source feed", aggregateID, version)
 		found, err = feedReader.IsEventPresentInFeed(aggregateID, version)
 		if err != nil {
 			return "", -1, err
