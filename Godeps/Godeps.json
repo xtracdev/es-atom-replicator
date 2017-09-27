@@ -160,7 +160,7 @@
 		},
 		{
 			"ImportPath": "github.com/mattn/go-oci8",
-			"Rev": "189d69fa2d3bde6c4b93f2b601e5a21b6c52334a"
+			"Rev": "2ceb2dd1c8913e2001a645a634c90c71fd713a07"
 		},
 		{
 			"ImportPath": "github.com/shiena/ansicolor",
