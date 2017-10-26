@@ -1,4 +1,5 @@
 containerbin:
+	go get github.com/gucumber/gucumber/cmd/gucumber
 	export PKG_CONFIG_PATH=$GOPATH/src/github.com/xtracdev/es-atom-replicator/pkgconfig/
 	go test
 	gucumber
