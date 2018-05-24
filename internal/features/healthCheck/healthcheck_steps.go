@@ -51,7 +51,7 @@ func init() {
 		err = json.Unmarshal(rawPayload, hr)
 		assert.Nil(T, err)
 		assert.Equal(T, 1, len(hr.AppStatus))
-		assert.Equal(T, "xtrac-managed-api-feed-replicator", hr.AppStatus[0].ApplicationName)
+		assert.Equal(T, "atom-feed-replicator", hr.AppStatus[0].ApplicationName)
 		assert.Equal(T, 1, len(hr.AppStatus[0].Dependencies))
 		assert.Equal(T, "Yes", hr.AppStatus[0].Dependencies[0].Available)
 	})
