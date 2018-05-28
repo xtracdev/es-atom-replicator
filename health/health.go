@@ -3,12 +3,13 @@ package health
 import (
 	"database/sql"
 	"encoding/json"
-	log "github.com/Sirupsen/logrus"
 	"net/http"
+
+	log "github.com/Sirupsen/logrus"
 )
 
 const (
-	appName = "xtrac-managed-api-feed-replicator"
+	appName = "atom-feed-replicator"
 	yesStr  = "Yes"
 	noStr   = "No"
 )
@@ -35,10 +36,11 @@ func EnableHealthEndpoint(healthPort string, db *sql.DB) {
 		return
 	}
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		log.Debug("Requesting Managed API feed replicator health...")
+		log.Debug("Requesting atom feed replicator health...")
 
 		hr := &HealthResponse{
-			AppStatus: []AppStatus{getReplicatorHealth(db)},
+			AppStatus:          []AppStatus{getReplicatorHealth(db)},
+			ApplicationVersion: Version,
 		}
 
 		b, err := json.Marshal(hr)
@@ -58,10 +60,15 @@ func EnableHealthEndpoint(healthPort string, db *sql.DB) {
 func getReplicatorHealth(db *sql.DB) AppStatus {
 	availableStr := yesStr
 
-	var result string
-	if dbError := db.QueryRow("select DUMMY from DUAL").Scan(&result); dbError != nil {
-		log.Warn("Managed API Feed Replicator is not healthy: ", dbError)
+	if db == nil {
 		availableStr = noStr
+	} else {
+
+		var result string
+		if dbError := db.QueryRow("select DUMMY from DUAL").Scan(&result); dbError != nil {
+			log.Warn("Atom Feed Replicator is not healthy: ", dbError)
+			availableStr = noStr
+		}
 	}
 
 	return AppStatus{
