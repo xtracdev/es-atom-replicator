@@ -274,25 +274,25 @@ func (r *OraEventStoreReplicator) addFeedEvents(aggregateID string, version int,
 		idParts := strings.SplitN(entry.ID, ":", 4)
 		payload, err := base64.StdEncoding.DecodeString(entry.Content.Body)
 		if err != nil {
-			log.Errorf("Unable to decode payload for entry %-v", entry, "Skip processing of event")
+			log.Errorf("Unable to decode payload for entry %-v, %s", entry, "Skip processing of event")
 			continue
 		}
 
 		ts, err := time.Parse(time.RFC3339Nano, string(entry.Published))
 		if err != nil {
-			log.Errorf("Unable to parse timestamp for entry %-v", entry, "Skip processing of event")
+			log.Errorf("Unable to parse timestamp for entry %-v, %s", entry, "Skip processing of event")
 			continue
 		}
 
 		ver, err := strconv.Atoi(idParts[3])
 		if err != nil {
-			log.Errorf("Unable to convert version integer for entry %-v", entry, "Skip processing of event")
+			log.Errorf("Unable to convert version integer for entry %-v, %s", entry, "Skip processing of event")
 			continue
 		}
 
 		if idParts[2] == aggregateID && ver == version {
 			//Already have this aggregate
-			log.Debugf("Event with aggregrateId %s and version %s not being replicated because it's already replicated.", aggregateID, ver)
+			log.Debugf("Event with aggregrateId %s and version %d not being replicated because it's already replicated.", aggregateID, ver)
 			continue
 		}
 
